@@ -6,7 +6,22 @@ import (
 	"strings"
 )
 
-func Lex(reader *bufio.Reader) {
+type Token struct {
+    Type, Value string
+}
+
+func unexpected(char string) {
+    switch char {
+    case " ": char = "space"
+    case "\n": char = "new line"
+    case "\t": char = "tab"
+    case "\x00": char = "EOF"
+    default: char = fmt.Sprintf("character \"%s\"", char)
+    }
+    fmt.Println("Unexpected", char)
+}
+
+func Lex(reader *bufio.Reader) []Token {
     var current string
     next := func () string {
         c, _, err := reader.ReadRune()
@@ -19,11 +34,12 @@ func Lex(reader *bufio.Reader) {
         return current
     }
 
+    tokens := make([]Token, 0, 100)
     next()
     main: for {
-        switch current {
+        current: switch current {
         case "\x00":
-            fmt.Println("EOF")
+            tokens = append(tokens, Token { "EOF", "" })
             break main
         case " ", "\t", "\n", "\r":
         case "/":
@@ -44,28 +60,29 @@ func Lex(reader *bufio.Reader) {
                     case "*":
                         next()
                         if current == "/" { break blockComment }
-                    case "\x00": panic("Unexpected EOF")
+                    case "\x00":
+                        unexpected(current)
+                        break blockComment
                     default: next()
                     }
                 }
             }
 
-        case "+": fmt.Println("PLUS     +")
+        case "+": tokens = append(tokens, Token { "PLUS", current })
         case "-":
-            if next() == ">" {
-                fmt.Println("ARROW    ->")
-            } else {
-                fmt.Println("DASH     -")
-                continue
+            if c := next(); c != ">" {
+                unexpected(c)
+                break
             }
-        case "*": fmt.Println("STAR     *")
-        case "?": fmt.Println("QUESTION ?")
-        case ".": fmt.Println("DOT      .")
-        case "|": fmt.Println("BAR      |")
-        case ";": fmt.Println("SEMI     ;")
-        case ":": fmt.Println("COLON    :")
-        case "(": fmt.Println("L_PAREN  (")
-        case ")": fmt.Println("R_PAREN  )")
+            tokens = append(tokens, Token { "ARROW", "->" })
+        case "*": tokens = append(tokens, Token { "STAR", current })
+        case "?": tokens = append(tokens, Token { "QUESTION", current })
+        case ".": tokens = append(tokens, Token { "DOT", current })
+        case "|": tokens = append(tokens, Token { "BAR", current })
+        case ";": tokens = append(tokens, Token { "SEMI", current })
+        case ":": tokens = append(tokens, Token { "COLON", current })
+        case "(": tokens = append(tokens, Token { "L_PAREN", current })
+        case ")": tokens = append(tokens, Token { "R_PAREN", current })
 
         case "\"":
             var builder strings.Builder
@@ -76,14 +93,18 @@ func Lex(reader *bufio.Reader) {
                 case "\"": break stringLiteral
                 case "\\":
                     switch c := next(); c {
-                    case "\n", "\r", "\x00": panic("Unexpected character in escape sequence")
+                    case "\n", "\r", "\x00":
+                        unexpected(c)
+                        break current
                     default: builder.WriteString(c + next())
                     }
-                case "\n", "\r", "\x00": panic("Unexpected character in string literal")
+                case "\n", "\r", "\x00":
+                    unexpected(current)
+                    break current
                 default: builder.WriteString(next())
                 }
             }
-            fmt.Printf("STRING   %s\n", builder.String())
+            tokens = append(tokens, Token { "STRING", builder.String() }) 
         case "[":
             var builder strings.Builder
             builder.WriteString(current)
@@ -93,14 +114,18 @@ func Lex(reader *bufio.Reader) {
                 case "]": break class
                 case "\\":
                     switch c := next(); c {
-                    case "\n", "\r", "\x00": panic("Unexpected character in escape sequence")
+                    case "\n", "\r", "\x00":
+                        unexpected(c)
+                        break current
                     default: builder.WriteString(c + next())
                     }
-                case "\n", "\r", "\x00": panic("Unexpected character in class")
+                case "\n", "\r", "\x00":
+                    unexpected(current)
+                    break current
                 default: builder.WriteString(next())
                 }
             }
-            fmt.Printf("CLASS    %s\n", builder.String())
+            tokens = append(tokens, Token { "CLASS", builder.String() })
         default:
             if (current >= "a" && current <= "z") || (current >= "A" && current <= "Z") || current == "_" {
                 var builder strings.Builder
@@ -112,16 +137,18 @@ func Lex(reader *bufio.Reader) {
                 }
 
                 switch id := builder.String(); id {
-                case "token": fmt.Printf("TOKEN    %s\n", id)
-                case "fragment": fmt.Printf("FRAGMENT %s\n", id)
-                case "skip": fmt.Printf("SKIP     %s\n", id)
-                default: fmt.Printf("IDENTIFIER %s\n", id)
+                case "token": tokens = append(tokens, Token { "TOKEN", id })
+                case "fragment": tokens = append(tokens, Token { "FRAGMENT", id })
+                case "skip": tokens = append(tokens, Token { "SKIP", id })
+                default: tokens = append(tokens, Token { "IDENTIFIER", id })
                 }
                 continue main
             } else {
-                panic("Unexpected character")
+                unexpected(current)
             }	
         }
         next()
     }
+
+    return tokens
 }

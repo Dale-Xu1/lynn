@@ -11,5 +11,9 @@ func main() {
     defer f.Close()
 
     r := bufio.NewReader(f)
-    lynn.Lex(r)
+    tokens := lynn.Lex(r)
+    _ = tokens
+    // for _, token := range tokens {
+    //     fmt.Printf("%-16s %s\n", token.Type, token.Value)
+    // }
 }
