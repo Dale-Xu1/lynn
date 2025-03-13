@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"lynn/lynn"
 	"os"
 )
@@ -11,9 +12,11 @@ func main() {
     defer f.Close()
 
     r := bufio.NewReader(f)
-    tokens := lynn.Lex(r)
-    _ = tokens
-    // for _, token := range tokens {
-    //     fmt.Printf("%-16s %s\n", token.Type, token.Value)
-    // }
+    lexer := lynn.NewLexer(r)
+    for {
+        token := lexer.Next()
+        if token.Type == "EOF" { break }
+
+        fmt.Printf("%-16s %s\n", token.Type, token.Value)
+    }
 }

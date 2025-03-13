@@ -5,12 +5,15 @@ rule
     | FRAGMENT IDENTIFIER ":" expr ";"
     ;
 
-literal : IDENTIFIER | STRING | CLASS | "." ;
 expr
     : "(" expr ")"
     | expr ("+" | "*" | "?")
-    | literal+
-    | expr | expr
+    | expr+
+    | expr "|" expr
+    | IDENTIFIER
+    | STRING
+    | CLASS
+    | "."
     ;
 
 token WHITESPACE : [ \t\n\r]+ -> skip ;
@@ -32,7 +35,7 @@ token R_PAREN    : ")" ;
 token ARROW      : "->" ;
 
 token IDENTIFIER : LETTER (LETTER | DIGIT)* ;
-token STRING     : "\"" ([^\\\r\n\"] | ESCAPE)* "\"" ;
+token STRING     : "\"" ([^\\\r\n"] | ESCAPE)* "\"" ;
 token CLASS      : "[" "^"? ([^\\\r\n\]] | ESCAPE)* "]" ;
 
 fragment DIGIT   : [0-9] ;
