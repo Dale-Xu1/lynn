@@ -38,8 +38,8 @@ token R_PAREN    : ")" ;
 token ARROW      : "->" ;
 
 token IDENTIFIER : LETTER (LETTER | DIGIT)* ;
-token STRING     : "\"" ([^\\\r\n"] | ESCAPE)* "\"" ;
-token CLASS      : "[" "^"? ([^\\\r\n\]] | ESCAPE)* "]" ;
+token STRING     : "\"" ([^\\\n\r"] | ESCAPE)* "\"" ;
+token CLASS      : "[" "^"? ([^\\\n\r\]] | ESCAPE)* "]" ;
 
 fragment DIGIT   : [0-9] ;
 fragment LETTER  : [a-zA-Z_] ;

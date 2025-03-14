@@ -15,27 +15,27 @@ type Token struct {
 type Lexer struct {
     Token  Token
     reader *bufio.Reader
-    temp   string
+    temp   rune
 }
 
 // Returns new lexer struct. Initializes lexer with initial token.
 func NewLexer(reader *bufio.Reader) *Lexer {
-    lexer := &Lexer { Token { }, reader, "" }
+    lexer := &Lexer { Token { }, reader, -1 }
     lexer.Next()
     return lexer
 }
 
 // Returns the next character in the input stream as a string. The lexer also contains a temporary buffer to store one character.
 // If the temporary buffer contains a character, it is outputted instead of having the next character read from the input stream.
-func (l *Lexer) char() string {
-    if l.temp != "" {
-        c := l.temp; l.temp = ""
+func (l *Lexer) char() rune {
+    if l.temp != -1 {
+        c := l.temp; l.temp = -1
         return c
     }
 
     c, _, err := l.reader.ReadRune()
-    if err != nil { return "\x00" } // Return a null character if stream does not have any more characters to emit
-    return string(c)
+    if err != nil { return 0 } // Return a null character if stream does not have any more characters to emit
+    return c
 }
 
 // Emits next token in stream.
@@ -53,102 +53,109 @@ func (l *Lexer) Match(token TokenType) bool {
     return false
 }
 
+// Tests if the type of the current token in the stream matches the provided type. Prints error message if types do not match.
+func (l *Lexer) Expect(token TokenType) bool {
+    r := l.Match(token)
+    if !r { fmt.Printf("Syntax error: Unexpected token \"%s\"\n", l.Token.Value) }
+    return r
+}
+
 // Reads character stream until new token is emitted. Recursively calls if pattern is skipped or an unexpected character is encountered.
 func (l *Lexer) next() Token {
     current := l.char()
     main: switch current {
-    case "\x00": return Token { EOF, "" }
-    case " ", "\t", "\n", "\r":
+    case 0: return Token { EOF, "" }
+    case ' ', '\t', '\n', '\r':
         // Repeatedly read whitespace characters until non-whitespace is found
         for {
             switch c := l.char(); c {
-            case " ", "\t", "\n", "\r":
+            case ' ', '\t', '\n', '\r':
             default:
                 l.temp = c // Store next character in temporary buffer for next token
                 return l.next()
             }
         }
-    case "/":
+    case '/':
         // Match comment patterns and skip
         switch c := l.char(); c {
-        case "/": // Line comment, read characters until termination found
+        case '/': // Line comment, read characters until termination found
             for {
-                switch l.char() { case "\n", "\r", "\x00": return l.next() }
+                switch l.char() { case '\n', '\r', 0: return l.next() }
             }
-        case "*": // Block comment, match for closing pattern
+        case '*': // Block comment, match for closing pattern
             for {
                 switch c := l.char(); c {
-                case "*":
-                    if c := l.char(); c == "/" {
+                case '*':
+                    if c := l.char(); c == '/' {
                         return l.next()
                     } else {
                         l.temp = c // Store in buffer and keep reading stream
                     }
-                case "\x00": current = c; break main
+                case 0: current = c; break main
                 }
             }
         default: l.temp = c // Possible that character after / belongs to valid token
         }
 
     // Tokenize symbols
-    case "=": return Token { EQUAL, current }
-    case "+": return Token { PLUS, current }
-    case "-":
-        if c := l.char(); c != ">" { current = c; break }
+    case '=': return Token { EQUAL,    string(current) }
+    case '+': return Token { PLUS,     string(current) }
+    case '*': return Token { STAR,     string(current) }
+    case '?': return Token { QUESTION, string(current) }
+    case '.': return Token { DOT,      string(current) }
+    case '|': return Token { BAR,      string(current) }
+    case ';': return Token { SEMI,     string(current) }
+    case ':': return Token { COLON,    string(current) }
+    case '(': return Token { L_PAREN,  string(current) }
+    case ')': return Token { R_PAREN,  string(current) }
+    case '-':
+        if c := l.char(); c != '>' { current = c; break }
         return Token { ARROW, "->" }
-    case "*": return Token { STAR, current }
-    case "?": return Token { QUESTION, current }
-    case ".": return Token { DOT, current }
-    case "|": return Token { BAR, current }
-    case ";": return Token { SEMI, current }
-    case ":": return Token { COLON, current }
-    case "(": return Token { L_PAREN, current }
-    case ")": return Token { R_PAREN, current }
 
-    case "\"": // Tokenize string
-        var builder strings.Builder; builder.WriteString(current)
+    case '"': // Tokenize string
+        var builder strings.Builder; builder.WriteRune(current)
         for {
             switch c := l.char(); c {
-            case "\"": // Terminate string when input stream emits "
-                builder.WriteString(c)
+            case '"': // Terminate string when input stream emits "
+                builder.WriteRune(c)
                 return Token { STRING, builder.String() }
-            case "\\":
+            case '\\':
                 // Read any character including " after escape character
                 switch e := l.char(); e {
-                case "\n", "\r", "\x00": current = e; break main
-                default: builder.WriteString(c + e)
+                case '\n', '\r', 0: current = e; break main
+                default: builder.WriteRune(c); builder.WriteRune(e)
                 }
-            case "\n", "\r", "\x00": current = c; break main
-            default: builder.WriteString(c)
+            case '\n', '\r', 0: current = c; break main
+            default: builder.WriteRune(c)
             }
         }
-    case "[": // Tokenize class
-        var builder strings.Builder; builder.WriteString(current)
+    case '[': // Tokenize class
+        var builder strings.Builder; builder.WriteRune(current)
         for {
             switch c := l.char(); c {
-            case "]": // Terminate class when input stream emits ]
-                builder.WriteString(c)
+            case ']': // Terminate class when input stream emits ]
+                builder.WriteRune(c)
                 return Token { CLASS, builder.String() }
-            case "\\":
+            case '\\':
                 // Read any character including ] after escape character
                 switch e := l.char(); e {
-                case "\n", "\r", "\x00": current = e; break main
-                default: builder.WriteString(c + e)
+                case '\n', '\r', 0: current = e; break main
+                default: builder.WriteRune(c); builder.WriteRune(e)
                 }
-            case "\n", "\r", "\x00": current = c; break main
-            default: builder.WriteString(c)
+            case '\n', '\r', 0: current = c; break main
+            default: builder.WriteRune(c)
             }
         }
     default:
         // Valid identifier or keyword if letter or _ is read
-        if (current >= "a" && current <= "z") || (current >= "A" && current <= "Z") || current == "_" {
+        if (current >= 'a' && current <= 'z') || (current >= 'A' && current <= 'Z') || current == '_' {
             var builder strings.Builder
-            builder.WriteString(current)
+            builder.WriteRune(current)
 
             // Read letters and digits until non-match is found
             c := l.char()
-            for (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || c == "_" || (c >= "0" && c <= "9") {
-                builder.WriteString(c)
+            for (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || (c >= '0' && c <= '9') {
+                builder.WriteRune(c)
                 c = l.char()
             }
             l.temp = c // Store non-match in buffer as it could be part of a valid token
@@ -168,15 +175,16 @@ func (l *Lexer) next() Token {
 }
 
 // Prints a formatted error message given an unexpected character.
-func unexpected(char string) {
+func unexpected(char rune) {
+    var str string
     switch char {
-    case " ": char = "space"
-    case "\n": char = "new line"
-    case "\t": char = "tab"
-    case "\x00": char = "end of file"
-    default: char = fmt.Sprintf("character \"%s\"", char)
+    case ' ': str = "space"
+    case '\n': str = "new line"
+    case '\t': str = "tab"
+    case 0: str = "end of file"
+    default: str = fmt.Sprintf("character \"%c\"", char)
     }
-    fmt.Println("Syntax error: Unexpected", char)
+    fmt.Println("Syntax error: Unexpected", str)
 }
 
 // FOR DEBUG PURPOSES:
