@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"lynn/lynn"
 	"os"
 )
@@ -12,5 +13,7 @@ func main() {
 
     lexer := lynn.NewLexer(bufio.NewReader(f))
     parser := lynn.NewParser(lexer)
-    parser.Parse()
+
+    ast := parser.Parse()
+    fmt.Printf("%v", ast)
 }

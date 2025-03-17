@@ -11,15 +11,51 @@ type Parser struct {
 }
 
 // Returns new parser struct.
-func NewParser(lexer *Lexer) *Parser {
-	return &Parser { lexer }
+func NewParser(lexer *Lexer) *Parser { return &Parser { lexer } }
+// Reads tokens from stream and produces an abstract syntax tree representing the grammar.
+func (p *Parser) Parse() *GrammarNode {
+	rules, tokens, fragments := make([]*RuleNode, 0, 100), make([]*TokenNode, 0, 100), make([]*FragmentNode, 0, 100)
+	for !p.lexer.Match(EOF) {
+		switch rule := p.parseRule(); rule.(type) {
+		case *RuleNode: rules = append(rules, rule.(*RuleNode))
+		case *TokenNode: tokens = append(tokens, rule.(*TokenNode))
+		case *FragmentNode: fragments = append(fragments, rule.(*FragmentNode))
+		case nil: p.synchronize()
+		}
+	}
+	return &GrammarNode { rules, tokens, fragments }
 }
 
-// Reads tokens from stream and produces an abstract syntax tree representing the grammar.
-func (p *Parser) Parse() {
-	// p.lexer.PrintTokenStream()
-	expr := p.parseExpression(UNION)
-	fmt.Printf("%v", expr)
+func (p *Parser) parseRule() AST {
+	switch token := p.lexer.Token; {
+	case p.lexer.Match(IDENTIFIER):
+		// Parse following pattern: [identifier] : <expr> ;
+		if !p.lexer.Expect(COLON) { return nil }
+		expression := p.parseExpressionDefault()
+		if !p.lexer.Expect(SEMI) { return nil }
+		return &RuleNode { token.Value, expression }
+	case p.lexer.Match(TOKEN):
+		// Parse following pattern: token [identifier] : <expr> (-> skip) ;
+		token := p.lexer.Token
+		if !p.lexer.Expect(IDENTIFIER) || !p.lexer.Expect(COLON) { return nil }
+		expression := p.parseExpressionDefault()
+		// Test for presence of skip flag
+		var skip = false
+		if p.lexer.Match(ARROW) {
+			if !p.lexer.Expect(SKIP) { return nil }
+			skip = true
+		}
+		if !p.lexer.Expect(SEMI) { return nil }
+		return &TokenNode { token.Value, expression, skip }
+	case p.lexer.Match(FRAGMENT):
+		// Parse following pattern: fragment [identifier] : <expr> ;
+		token := p.lexer.Token
+		if !p.lexer.Expect(IDENTIFIER) || !p.lexer.Expect(COLON) { return nil }
+		expression := p.parseExpressionDefault()
+		if !p.lexer.Expect(SEMI) { return nil }
+		return &FragmentNode { token.Value, expression }
+	default: return nil
+	}
 }
 
 // Represents operation precedence as an enumerated integer.
@@ -30,6 +66,7 @@ const (
 	QUANTIFIER
 )
 
+func (p *Parser) parseExpressionDefault() AST { return p.parseExpression(UNION) }
 func (p *Parser) parseExpression(precedence Precedence) AST {
 	left := p.parsePrimary()
 	if left == nil { return nil }
@@ -69,7 +106,7 @@ func (p *Parser) parsePrimary() AST {
 	switch token := p.lexer.Token; {
 	// Parentheses enclose a group, precedence is reset for inner expression
 	case p.lexer.Match(L_PAREN):
-		expr := p.parseExpression(UNION)
+		expr := p.parseExpressionDefault()
 		if expr == nil || !p.lexer.Expect(R_PAREN) { return nil }
 		return expr
 
@@ -134,22 +171,38 @@ func expandClass(chars []rune) []rune {
 	return expanded
 }
 
+func (p *Parser) synchronize() {
+	// Skip tokens until a semicolon or a keyword denoting the beginning of a rule is found
+	main: for {
+		switch p.lexer.Token.Type {
+		case SEMI:
+			p.lexer.Next()
+			fallthrough
+		case TOKEN, FRAGMENT:
+			break main
+		}
+		p.lexer.Next()
+	}
+}
+
 // Interface for nodes of abstract syntax tree.
-type AST any
+type AST fmt.Stringer
 // Node representing the entire grammar as a list of rules.
 type GrammarNode struct {
-	Rules []AST
+	Rules     []*RuleNode
+	Tokens    []*TokenNode
+	Fragments []*FragmentNode
 }
 
 // Node representing a grammar rule. Specifies the rule's identifier and regular expression.
 type RuleNode struct {
-	Identifier IdentifierNode
+	Identifier string
 	Expression AST
 }
 
 // Node representing a token rule. Specifies the token's identifier and regular expression.
 type TokenNode struct {
-	Identifier IdentifierNode
+	Identifier string
 	Expression AST
 	Skip       bool
 }
@@ -157,7 +210,7 @@ type TokenNode struct {
 // Node representing a rule fragment. Specifies the fragment's identifier and regular expression.
 // Fragments are used to repeat regular expressions in token rules.
 type FragmentNode struct {
-	Identifier IdentifierNode
+	Identifier string
 	Expression AST
 }
 
@@ -190,6 +243,29 @@ type ClassNode struct {
 	Negated bool
 }
 
+func (n GrammarNode) String() string {
+	lines := make([]string, 0, len(n.Rules) + len(n.Tokens) + len(n.Fragments))
+	for _, rule := range n.Rules { lines = append(lines, rule.String()) }
+	for _, token := range n.Tokens { lines = append(lines, token.String()) }
+	for _, fragment := range n.Fragments { lines = append(lines, fragment.String()) }
+	return strings.Join(lines, "\n")
+}
+
+func (n RuleNode) String() string {
+	return fmt.Sprintf("rule %s : %v", n.Identifier, n.Expression)
+}
+
+func (n TokenNode) String() string {
+	if n.Skip {
+		return fmt.Sprintf("token skip %s : %v", n.Identifier, n.Expression)
+	}
+	return fmt.Sprintf("token %s : %v", n.Identifier, n.Expression)
+}
+
+func (n FragmentNode) String() string {
+	return fmt.Sprintf("fragment %s : %v", n.Identifier, n.Expression)
+}
+
 func (n OptionNode) String() string { return fmt.Sprintf("(%v)?", n.Expression) }
 func (n RepeatNode) String() string { return fmt.Sprintf("(%v)*", n.Expression) }
 func (n RepeatOneNode) String() string { return fmt.Sprintf("(%v)+", n.Expression) }
@@ -199,10 +275,30 @@ func (n UnionNode) String() string { return fmt.Sprintf("(%v | %v)", n.A, n.B) }
 
 func (n AnyNode) String() string { return "any" }
 func (n IdentifierNode) String() string { return fmt.Sprintf("id:%s", n.Name) }
-func (n StringNode) String() string { return fmt.Sprintf("\"%s\"", n.Value) }
+
+func (n StringNode) String() string {
+	value := strings.ReplaceAll(n.Value, "\t", "\\t")
+	value = strings.ReplaceAll(value, "\n", "\\n")
+	value = strings.ReplaceAll(value, "\r", "\\r")
+	value = strings.ReplaceAll(value, "\b", "\\b")
+	value = strings.ReplaceAll(value, "\f", "\\f")
+	value = strings.ReplaceAll(value, "\x00", "\\0")
+	return fmt.Sprintf("\"%s\"", value)
+}
+
 func (n ClassNode) String() string {
 	var builder strings.Builder
-	for _, char := range n.Chars { builder.WriteRune(char) }
+	for _, char := range n.Chars {
+		switch char {
+		case '\t': builder.WriteString("\\t") 
+		case '\n': builder.WriteString("\\n") 
+		case '\r': builder.WriteString("\\r") 
+		case '\b': builder.WriteString("\\b") 
+		case '\f': builder.WriteString("\\f") 
+		case 0: builder.WriteString("\\0") 
+		default: builder.WriteRune(char)
+		}
+	}
 	if n.Negated {
 		return fmt.Sprintf("[^%s]", builder.String())
 	} else {
