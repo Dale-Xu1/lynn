@@ -32,6 +32,7 @@ const (
 
 func (p *Parser) parseExpression(precedence Precedence) AST {
 	left := p.parsePrimary()
+	if left == nil { return nil }
 	main: for {
 		// Determine precedence of current token in stream
 		var next Precedence
@@ -46,13 +47,19 @@ func (p *Parser) parseExpression(precedence Precedence) AST {
 
 		// Continue parsing based on type of expression
 		switch {
-		case p.lexer.Match(BAR): left = &UnionNode { left, p.parseExpression(next + 1) }
+		case p.lexer.Match(BAR):
+			right := p.parseExpression(next + 1)
+			if right == nil { return nil }
+			left = &UnionNode { left, right }
 		case p.lexer.Match(QUESTION): left = &OptionNode { left }
 		case p.lexer.Match(STAR): left = &RepeatNode { left }
 		case p.lexer.Match(PLUS): left = &RepeatOneNode { left }
 		
 		// This relies on the current token being a valid beginning of an expression since combinations have no delimiter
-		default: left = &CombinationNode { left, p.parseExpression(next + 1) }
+		default:
+			right := p.parseExpression(next + 1)
+			if right == nil { return nil }
+			left = &CombinationNode { left, right }
 		}
 	}
 	return left
@@ -60,51 +67,71 @@ func (p *Parser) parseExpression(precedence Precedence) AST {
 
 func (p *Parser) parsePrimary() AST {
 	switch token := p.lexer.Token; {
+	// Parentheses enclose a group, precedence is reset for inner expression
 	case p.lexer.Match(L_PAREN):
 		expr := p.parseExpression(UNION)
-		if !p.lexer.Expect(R_PAREN) { return nil }
+		if expr == nil || !p.lexer.Expect(R_PAREN) { return nil }
 		return expr
 
 	case p.lexer.Match(DOT): return &AnyNode { }
 	case p.lexer.Match(IDENTIFIER): return &IdentifierNode { token.Value }
 	case p.lexer.Match(STRING):
-		value := token.Value[1:len(token.Value) - 1]
-		value = strings.ReplaceAll(value, "\\\\", "\\")
+		value := token.Value[1:len(token.Value) - 1] // Remove quotation marks
+		// Replace escape sequences with special characters
 		value = strings.ReplaceAll(value, "\\t", "\t")
 		value = strings.ReplaceAll(value, "\\n", "\n")
 		value = strings.ReplaceAll(value, "\\r", "\r")
 		value = strings.ReplaceAll(value, "\\b", "\b")
 		value = strings.ReplaceAll(value, "\\f", "\f")
 		value = strings.ReplaceAll(value, "\\0", "\x00")
-		value = strings.ReplaceAll(value, "\\\"", "\"")
 
+		// Remove backslash for non-special characters
 		re := regexp.MustCompile(`\\(.)`)
 		value = re.ReplaceAllString(value, "$1")
 		return &StringNode { value }
 	case p.lexer.Match(CLASS):
-		value := token.Value[1:len(token.Value) - 1]
-		negated := value[0] == '^'
+		value := token.Value[1:len(token.Value) - 1] // Remove brackets
+		// If caret occurs, flag class as negated and remove caret
+		negated := len(value) > 0 && value[0] == '^'
 		if negated { value = value[1:] }
-
-		value = strings.ReplaceAll(value, "\\\\", "\\")
-		value = strings.ReplaceAll(value, "\\t", "\t")
-		value = strings.ReplaceAll(value, "\\n", "\n")
-		value = strings.ReplaceAll(value, "\\r", "\r")
-		value = strings.ReplaceAll(value, "\\b", "\b")
-		value = strings.ReplaceAll(value, "\\f", "\f")
-		value = strings.ReplaceAll(value, "\\0", "\x00")
-		value = strings.ReplaceAll(value, "\\]", "]")
-
-		re := regexp.MustCompile(`\\(.)`)
-		value = re.ReplaceAllString(value, "$1")
 		return &ClassNode { expandClass([]rune(value)), negated }
-	default: return nil
+	default: return nil // Invalid expression
 	}
 }
 
 func expandClass(chars []rune) []rune {
-	// TODO: Implementation
-	return chars
+	expanded := make([]rune, 0, len(chars))
+	for i := 0; i < len(chars); i++ {
+		char := chars[i]
+		switch {
+		case char == '\\':
+			i++
+			// Replace escape sequences with special characters
+			switch chars[i] {
+			case 't': expanded = append(expanded, '\t')
+			case 'n': expanded = append(expanded, '\n')
+			case 'r': expanded = append(expanded, '\r')
+			case 'b': expanded = append(expanded, '\b')
+			case 'f': expanded = append(expanded, '\f')
+			case '0': expanded = append(expanded, 0)
+			default: expanded = append(expanded, chars[i]) // Backslash is ignored for non-special characters
+			}
+		case char == '-' && i > 0 && i < len(chars) - 1: // Hyphen for range cannot be first or last character in class
+			if chars[i - 1] <= chars[i + 1] {
+				// Expand range to all characters between endpoints
+				for c := chars[i - 1] + 1; c <= chars[i + 1]; c++ {
+					expanded = append(expanded, c)
+				}
+			} else {
+				// Raise error and ignore range if endpoint order is reversed
+				fmt.Printf("Syntax error: Invalid range from %c to %c\n", chars[i - 1], chars[i + 1])
+				expanded = expanded[:len(expanded) - 1]
+			}
+			i++
+		default: expanded = append(expanded, chars[i])
+		}
+	}
+	return expanded
 }
 
 // Interface for nodes of abstract syntax tree.
