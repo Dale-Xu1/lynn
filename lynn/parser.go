@@ -59,7 +59,7 @@ func (p *Parser) parseRule() AST {
 }
 
 // Represents operation precedence as an enumerated integer.
-type Precedence int
+type Precedence uint
 const (
 	UNION Precedence = iota
 	COMBINATION
