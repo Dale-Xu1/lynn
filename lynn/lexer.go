@@ -6,12 +6,15 @@ import (
 	"strings"
 )
 
+// Represents type of token as an enumerated integer.
 type TokenType int
+// Token struct. Holds type and value of token.
 type Token struct {
     Type  TokenType
     Value string
 }
 
+// Lexer struct. Produces token stream.
 type Lexer struct {
     Token  Token
     reader *bufio.Reader
@@ -60,8 +63,9 @@ func (l *Lexer) Expect(token TokenType) bool {
     return r
 }
 
-// Reads character stream until new token is emitted. Recursively calls if pattern is skipped or an unexpected character is encountered.
 func (l *Lexer) next() Token {
+    // Read character stream until new token is emitted
+    // Recursively calls if pattern is skipped or an unexpected character is encountered
     current := l.char()
     main: switch current {
     case 0: return Token { EOF, "" }
@@ -174,8 +178,8 @@ func (l *Lexer) next() Token {
     return l.next()
 }
 
-// Prints a formatted error message given an unexpected character.
 func unexpected(char rune) {
+    // Print formatted error message given an unexpected character
     var str string
     switch char {
     case ' ': str = "space"
