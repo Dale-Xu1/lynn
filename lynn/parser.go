@@ -20,7 +20,9 @@ func (p *Parser) Parse() *GrammarNode {
 		case *RuleNode: rules = append(rules, rule.(*RuleNode))
 		case *TokenNode: tokens = append(tokens, rule.(*TokenNode))
 		case *FragmentNode: fragments = append(fragments, rule.(*FragmentNode))
-		case nil: p.synchronize()
+		case nil:
+			p.unexpected()
+			p.synchronize()
 		}
 	}
 	return &GrammarNode { rules, tokens, fragments }
@@ -30,29 +32,29 @@ func (p *Parser) parseRule() AST {
 	switch token := p.lexer.Token; {
 	case p.lexer.Match(IDENTIFIER):
 		// Parse following pattern: [identifier] : <expr> ;
-		if !p.lexer.Expect(COLON) { return nil }
+		if !p.lexer.Match(COLON) { return nil }
 		expression := p.parseExpressionDefault()
-		if !p.lexer.Expect(SEMI) { return nil }
+		if !p.lexer.Match(SEMI) { return nil }
 		return &RuleNode { token.Value, expression }
 	case p.lexer.Match(TOKEN):
 		// Parse following pattern: token [identifier] : <expr> (-> skip) ;
 		token := p.lexer.Token
-		if !p.lexer.Expect(IDENTIFIER) || !p.lexer.Expect(COLON) { return nil }
+		if !p.lexer.Match(IDENTIFIER) || !p.lexer.Match(COLON) { return nil }
 		expression := p.parseExpressionDefault()
 		// Test for presence of skip flag
 		var skip = false
 		if p.lexer.Match(ARROW) {
-			if !p.lexer.Expect(SKIP) { return nil }
+			if !p.lexer.Match(SKIP) { return nil }
 			skip = true
 		}
-		if !p.lexer.Expect(SEMI) { return nil }
+		if !p.lexer.Match(SEMI) { return nil }
 		return &TokenNode { token.Value, expression, skip }
 	case p.lexer.Match(FRAGMENT):
 		// Parse following pattern: fragment [identifier] : <expr> ;
 		token := p.lexer.Token
-		if !p.lexer.Expect(IDENTIFIER) || !p.lexer.Expect(COLON) { return nil }
+		if !p.lexer.Match(IDENTIFIER) || !p.lexer.Match(COLON) { return nil }
 		expression := p.parseExpressionDefault()
-		if !p.lexer.Expect(SEMI) { return nil }
+		if !p.lexer.Match(SEMI) { return nil }
 		return &FragmentNode { token.Value, expression }
 	default: return nil
 	}
@@ -91,7 +93,7 @@ func (p *Parser) parseExpression(precedence Precedence) AST {
 		case p.lexer.Match(QUESTION): left = &OptionNode { left }
 		case p.lexer.Match(STAR): left = &RepeatNode { left }
 		case p.lexer.Match(PLUS): left = &RepeatOneNode { left }
-		
+	
 		// This relies on the current token being a valid beginning of an expression since combinations have no delimiter
 		default:
 			right := p.parseExpression(next + 1)
@@ -107,7 +109,7 @@ func (p *Parser) parsePrimary() AST {
 	// Parentheses enclose a group, precedence is reset for inner expression
 	case p.lexer.Match(L_PAREN):
 		expr := p.parseExpressionDefault()
-		if expr == nil || !p.lexer.Expect(R_PAREN) { return nil }
+		if expr == nil || !p.lexer.Match(R_PAREN) { return nil }
 		return expr
 
 	case p.lexer.Match(DOT): return &AnyNode { }
@@ -131,12 +133,12 @@ func (p *Parser) parsePrimary() AST {
 		// If caret occurs, flag class as negated and remove caret
 		negated := len(value) > 0 && value[0] == '^'
 		if negated { value = value[1:] }
-		return &ClassNode { expandClass([]rune(value)), negated }
+		return &ClassNode { expandClass([]rune(value), token.Location), negated }
 	default: return nil // Invalid expression
 	}
 }
 
-func expandClass(chars []rune) []rune {
+func expandClass(chars []rune, location Location) []rune {
 	expanded := make([]rune, 0, len(chars))
 	for i := 0; i < len(chars); i++ {
 		char := chars[i]
@@ -161,7 +163,7 @@ func expandClass(chars []rune) []rune {
 				}
 			} else {
 				// Raise error and ignore range if endpoint order is reversed
-				fmt.Printf("Syntax error: Invalid range from %c to %c\n", chars[i - 1], chars[i + 1])
+				fmt.Printf("Syntax error: Invalid range from %c to %c - %d:%d\n", chars[i - 1], chars[i + 1], location.Line, location.Col)
 				expanded = expanded[:len(expanded) - 1]
 			}
 			i++
@@ -169,6 +171,12 @@ func expandClass(chars []rune) []rune {
 		}
 	}
 	return expanded
+}
+
+func (p *Parser) unexpected() {
+	// Raise error message describing the current token in the stream as unexpected
+	token := p.lexer.Token
+    fmt.Printf("Syntax error: Unexpected token \"%s\" - %d:%d\n", token.Value, token.Location.Line, token.Location.Col)
 }
 
 func (p *Parser) synchronize() {

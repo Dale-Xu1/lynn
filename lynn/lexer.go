@@ -45,7 +45,6 @@ func (l *Lexer) char() rune {
         c, _, err = l.reader.ReadRune()
         if err != nil { return 0 } // Return a null character if stream does not have any more characters to emit
     }
-
     switch c {
     case '\n': l.line++; l.col = 1
     default: l.col++
@@ -78,13 +77,6 @@ func (l *Lexer) Match(token TokenType) bool {
     return false
 }
 
-// Tests if the type of the current token in the stream matches the provided type. Prints error message if types do not match.
-func (l *Lexer) Expect(token TokenType) bool {
-    r := l.Match(token)
-    if !r { fmt.Printf("Syntax error: Unexpected token \"%s\" - %d:%d\n", l.Token.Value, l.Token.Location.Line, l.Token.Location.Col) }
-    return r
-}
-
 func (l *Lexer) location() Location { return Location { l.line, l.col } }
 func (l *Lexer) next() Token {
     // Read character stream until new token is emitted
@@ -111,7 +103,6 @@ func (l *Lexer) next() Token {
         case '*': // Block comment, match for closing pattern
             l.char()
             for {
-                n := l.location()
                 switch c := l.char(); c {
                 case '*':
                     if c := l.lookahead(); c == '/' {
@@ -119,7 +110,7 @@ func (l *Lexer) next() Token {
                         return l.next()
                     }
                 case 0:
-                    unexpected(c, n)
+                    unexpected(c, l.location())
                     break main
                 }
             }
@@ -138,10 +129,7 @@ func (l *Lexer) next() Token {
     case ')': return Token { R_PAREN,  string(current), location }
     case '-':
         n := l.location()
-        if c := l.char(); c != '>' {
-            unexpected(c, n)
-            break
-        }
+        if c := l.char(); c != '>' { unexpected(c, n); break }
         return Token { ARROW, "->", location }
 
     case '"': // Tokenize string
@@ -156,14 +144,10 @@ func (l *Lexer) next() Token {
                 // Read any character including " after escape character
                 n := l.location()
                 switch e := l.char(); e {
-                case '\n', '\r', 0:
-                    unexpected(e, n)
-                    break main
+                case '\n', '\r', 0: unexpected(e, n); break main
                 default: builder.WriteRune(c); builder.WriteRune(e)
                 }
-            case '\n', '\r', 0:
-                unexpected(c, n)
-                break main
+            case '\n', '\r', 0: unexpected(c, n); break main
             default: builder.WriteRune(c)
             }
         }
@@ -179,14 +163,10 @@ func (l *Lexer) next() Token {
                 // Read any character including ] after escape character
                 n := l.location()
                 switch e := l.char(); e {
-                case '\n', '\r', 0:
-                    unexpected(e, n)
-                    break main
+                case '\n', '\r', 0: unexpected(e, n); break main
                 default: builder.WriteRune(c); builder.WriteRune(e)
                 }
-            case '\n', '\r', 0:
-                unexpected(c, n)
-                break main
+            case '\n', '\r', 0: unexpected(c, n); break main
             default: builder.WriteRune(c)
             }
         }
