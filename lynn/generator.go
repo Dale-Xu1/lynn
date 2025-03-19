@@ -1,6 +1,9 @@
 package lynn
 
-import "fmt"
+import (
+	"fmt"
+	"regexp"
+)
 
 // Non-deterministic finite automata struct.
 type NFA struct {
@@ -8,17 +11,16 @@ type NFA struct {
 	Accept []*NFAState
 }
 
-const (
-	EPSILON rune = -1
-	ANY rune = -2
-)
-
 // Non-deterministic finite automata fragment struct. Holds references to the in and out states.
 type NFAFragment struct { In, Out *NFAState }
 // Non-deterministic finite automata state struct. Holds references to outgoing states and each transition's associated character.
 type NFAState struct {
-	Transitions map[rune][]*NFAState
+	Transitions map[Range]*NFAState
+	Epsilon     []*NFAState
 }
+
+// Represents a range between characters.
+type Range struct { Min, Max rune }
 
 // Generator struct. Converts abstract syntax tree (AST) to finite automata (FA).
 type Generator struct {
@@ -34,15 +36,16 @@ func (g *Generator) GenerateNFA(grammar *GrammarNode) NFA {
 		nfa, ok := g.expressionNFA(fragment.Expression)
 		if ok { g.fragments[fragment.Identifier] = nfa }
 	}
-	start := &NFAState { make(map[rune][]*NFAState, len(grammar.Tokens)) }
+	start := &NFAState { make(map[Range]*NFAState, 0), make([]*NFAState, 0, len(grammar.Tokens)) }
 	accept := make([]*NFAState, 0, len(grammar.Tokens))
 	for _, token := range grammar.Tokens {
 		// Convert token expressions to NFAs and attach fragment to final NFA
 		if nfa, ok := g.expressionNFA(token.Expression); ok {
-			start.AddTransition(EPSILON, nfa.In)
+			start.AddEpsilon(nfa.In)
 			accept = append(accept, nfa.Out)
 		}
 	}
+	// TODO: Disjoin all occurring ranges
 	return NFA { start, accept }
 }
 
@@ -51,71 +54,62 @@ func (g *Generator) expressionNFA(expression AST) (NFAFragment, bool) {
 	// Implementation of Thompson's construction to generate an NFA from the AST
 	case *OptionNode:
 		nfa, ok := g.expressionNFA(node.Expression); if !ok { return nfa, ok }
-		out := &NFAState { make(map[rune][]*NFAState, 1) }
-		in := &NFAState { map[rune][]*NFAState { EPSILON: { nfa.In, out } } }
-		nfa.Out.AddTransition(EPSILON, out)
+		out := &NFAState { make(map[Range]*NFAState, 0), make([]*NFAState, 0, 1) }
+		in := &NFAState { make(map[Range]*NFAState, 0), []*NFAState { nfa.In, out } }
+		nfa.Out.AddEpsilon(out)
 		return NFAFragment { in, out }, true
 	case *RepeatNode:
 		nfa, ok := g.expressionNFA(node.Expression); if !ok { return nfa, ok }
-		out := &NFAState { make(map[rune][]*NFAState, 1) }
-		in := &NFAState { map[rune][]*NFAState { EPSILON: { nfa.In, out } } }
-		nfa.Out.AddTransition(EPSILON, nfa.In, out)
+		out := &NFAState { make(map[Range]*NFAState, 0), make([]*NFAState, 0, 1) }
+		in := &NFAState { make(map[Range]*NFAState, 0), []*NFAState { nfa.In, out } }
+		nfa.Out.AddEpsilon(nfa.In, out)
 		return NFAFragment { in, out }, true
 	case *RepeatOneNode:
 		nfa, ok := g.expressionNFA(node.Expression); if !ok { return nfa, ok }
-		out := &NFAState { make(map[rune][]*NFAState, 1) }
-		in := &NFAState { map[rune][]*NFAState { EPSILON: { nfa.In } } }
-		nfa.Out.AddTransition(EPSILON, nfa.In, out)
+		out := &NFAState { make(map[Range]*NFAState, 0), make([]*NFAState, 0, 1) }
+		in := &NFAState { make(map[Range]*NFAState, 0), []*NFAState { nfa.In } }
+		nfa.Out.AddEpsilon(nfa.In, out)
 		return NFAFragment { in, out }, true
 
 	case *ConcatenationNode:
 		a, ok := g.expressionNFA(node.A); if !ok { return a, ok }
 		b, ok := g.expressionNFA(node.B); if !ok { return b, ok }
 		// Create epsilon transition between two fragments
-		a.Out.AddTransition(EPSILON, b.In)
+		a.Out.AddEpsilon(b.In)
 		return NFAFragment { a.In, b.Out }, true
 	case *UnionNode:
 		a, ok := g.expressionNFA(node.A); if !ok { return a, ok }
 		b, ok := g.expressionNFA(node.B); if !ok { return b, ok }
 		// Create in state with epsilon transitions to in states of both fragments
-		in, out := &NFAState { map[rune][]*NFAState { EPSILON: { a.In, b.In } } }, &NFAState { make(map[rune][]*NFAState, 1) }
-		a.Out.AddTransition(EPSILON, out) // Create epsilon transitions from out states of fragments to final out state
-		b.Out.AddTransition(EPSILON, out)
+		in, out := &NFAState { make(map[Range]*NFAState, 0), []*NFAState { a.In, b.In } },
+			&NFAState { make(map[Range]*NFAState, 0), make([]*NFAState, 0, 1) }
+		a.Out.AddEpsilon(out) // Create epsilon transitions from out states of fragments to final out state
+		b.Out.AddEpsilon(out)
 		return NFAFragment { in, out }, true
 
 	// Generate NFAs for literals
-	case *AnyNode:
-		out := &NFAState { make(map[rune][]*NFAState, 1) }
-		in := &NFAState { map[rune][]*NFAState { ANY: { out }, '\n': nil, '\r': nil } } // . does not match new lines
-		return NFAFragment { in, out }, true
-	case *IdentifierNode: return g.copyFragment(node.Name)
+	case *IdentifierNode: return g.getFragment(node.Name)
 	case *StringNode:
 		// Generate chain of states with transitions at each consecutive character
-		out := &NFAState { make(map[rune][]*NFAState, 1) }
+		out := &NFAState { make(map[Range]*NFAState, 0), make([]*NFAState, 0, 1) }
 		state := out
 		for i := len(node.Chars) - 1; i >= 0; i-- {
 			char := node.Chars[i]
-			state = &NFAState { map[rune][]*NFAState { char: { state } } }
+			state = &NFAState { map[Range]*NFAState { { char, char }: state }, make([]*NFAState, 0, 1) }
 		}
 		return NFAFragment { state, out }, true
 	case *ClassNode:
-		var in *NFAState; var out *NFAState
-		if !node.Negated {
-			// Add transition from in to out for each character in class
-			in, out = &NFAState { make(map[rune][]*NFAState, len(node.Chars)) }, &NFAState { make(map[rune][]*NFAState, 1) }
-			for _, c := range node.Chars { in.Transitions[c] = []*NFAState { out } }
-		} else {
-			// Add nil transition for each character in class and create any transition from in to out
-			in, out = &NFAState { make(map[rune][]*NFAState, len(node.Chars) + 1) }, &NFAState { make(map[rune][]*NFAState, 1) }
-			in.Transitions[ANY] = []*NFAState { out }
-			for _, c := range node.Chars { in.Transitions[c] = nil }
-		}
+		var (in *NFAState; out *NFAState)
+		// Add transition from in to out for each character in class
+		in, out = &NFAState { make(map[Range]*NFAState, len(node.Ranges)), make([]*NFAState, 0, 1) },
+			&NFAState { make(map[Range]*NFAState, 0), make([]*NFAState, 0, 1) }
+		for _, r := range node.Ranges { in.Transitions[r] = out }
 		return NFAFragment { in, out }, true
 	default: panic("Invalid expression passed to expressionNFA()")
 	}
 }
 
-func (g *Generator) copyFragment(identifier string) (NFAFragment, bool) {
+func (g *Generator) getFragment(identifier string) (NFAFragment, bool) {
 	fa, ok := g.fragments[identifier]
 	if !ok {
 		fmt.Printf("Generation error: Fragment \"%s\" does not exist\n", identifier) // TODO: Store location in AST
@@ -127,19 +121,41 @@ func (g *Generator) copyFragment(identifier string) (NFAFragment, bool) {
 
 func (s *NFAState) copy(states map[*NFAState]*NFAState) *NFAState {
 	if state, ok := states[s]; ok { return state }
-	copy := &NFAState { make(map[rune][]*NFAState, len(s.Transitions)) }
+	copy := &NFAState { make(map[Range]*NFAState, len(s.Transitions)), make([]*NFAState, len(s.Epsilon), cap(s.Epsilon)) }
 	states[s] = copy
-	for value, out := range s.Transitions {
-		copy.Transitions[value] = make([]*NFAState, len(out), cap(out))
-		for i, state := range out { copy.Transitions[value][i] = state.copy(states) }
-	}
+	for value, state := range s.Transitions { copy.Transitions[value] = state.copy(states) }
+	for i, state := range s.Epsilon { copy.Epsilon[i] = state.copy(states) }
 	return copy
 }
 
-func (s *NFAState) AddTransition(value rune, states ...*NFAState) {
-	if out, ok := s.Transitions[value]; ok {
-		for _, state := range states { s.Transitions[value] = append(out, state) }
-	} else {
-		s.Transitions[value] = states
+func (s *NFAState) AddEpsilon(states ...*NFAState) { s.Epsilon = append(s.Epsilon, states...) }
+
+func (r Range) String() string {
+	if r.Min == r.Max { return formatChar(r.Min) }
+	return fmt.Sprintf("%s-%s", formatChar(r.Min), formatChar(r.Max))
+}
+
+// FOR DEBUG PURPOSES:
+// Prints all transitions formatted for use in a graph visualizer.
+func (n NFA) PrintTransitions() {
+	fmt.Println("digraph {")
+	fmt.Println("    node [shape=\"circle\"];")
+	states := make(map[*NFAState]int, 50)
+	n.Start.printTransitions(states)
+	for _, state := range n.Accept { fmt.Printf("    %d [shape=\"doublecircle\"]\n", states[state]) }
+	fmt.Println("}")
+}
+
+func (s *NFAState) printTransitions(states map[*NFAState]int) int {
+	if v, ok := states[s]; ok { return v }
+	i := len(states); states[s] = i
+	for value, state := range s.Transitions {
+		re := regexp.MustCompile(`\\([^"\\])`)
+		str := re.ReplaceAllString(value.String(), "\\\\$1")
+		fmt.Printf("    %d -> %d [label=\"%s\"];\n", i, state.printTransitions(states), str)
 	}
+	for _, state := range s.Epsilon {
+		fmt.Printf("    %d -> %d [label=\"ε\"];\n", i, state.printTransitions(states))
+	}
+	return i
 }

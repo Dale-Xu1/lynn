@@ -1,7 +1,9 @@
 package lynn
 
 import (
+	"cmp"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -110,18 +112,24 @@ func (p *Parser) parsePrimary() AST {
 		if expr == nil || !p.lexer.Match(R_PAREN) { return nil }
 		return expr
 
-	case p.lexer.Match(DOT): return &AnyNode { }
+	case p.lexer.Match(DOT): return &ClassNode { negateRanges(expandClass([]rune { '\n', '\r' }, token.Location)) }
 	case p.lexer.Match(IDENTIFIER): return &IdentifierNode { token.Value }
 	case p.lexer.Match(STRING):
 		value := token.Value[1:len(token.Value) - 1] // Remove quotation marks
-		if len(value) == 0 { fmt.Printf("Syntax error: String must contain at least one character - %d:%d", token.Location.Line, token.Location.Col)}
+		if len(value) == 0 { fmt.Printf("Syntax error: String must contain at least one character - %d:%d",
+			token.Location.Line, token.Location.Col)}
 		return &StringNode { reduceString([]rune(value)) }
 	case p.lexer.Match(CLASS):
 		value := token.Value[1:len(token.Value) - 1] // Remove brackets
 		// If caret occurs, flag class as negated and remove caret
 		negated := len(value) > 0 && value[0] == '^'
-		if negated { value = value[1:] }
-		return &ClassNode { expandClass(reduceString([]rune(value)), token.Location), negated }
+		var expanded []Range
+		if !negated {
+			expanded = expandClass(reduceString([]rune(value)), token.Location)
+		} else {
+			expanded = negateRanges(expandClass(reduceString([]rune(value[1:])), token.Location))
+		}
+		return &ClassNode { expanded }
 	default: return nil // Invalid expression
 	}
 }
@@ -138,8 +146,6 @@ func reduceString(chars []rune) []rune {
 			case 't': reduced = append(reduced, '\t')
 			case 'n': reduced = append(reduced, '\n')
 			case 'r': reduced = append(reduced, '\r')
-			case 'b': reduced = append(reduced, '\b')
-			case 'f': reduced = append(reduced, '\f')
 			case '0': reduced = append(reduced, 0)
 			default: reduced = append(reduced, chars[i]) // Backslash is ignored for non-special characters
 			}
@@ -149,28 +155,64 @@ func reduceString(chars []rune) []rune {
 	return reduced
 }
 
-func expandClass(chars []rune, location Location) []rune {
-	expanded := make([]rune, 0, len(chars))
+func expandClass(chars []rune, location Location) []Range {
+	// Convert characters and hyphen notation to range structs
+	expanded := make([]Range, 0, len(chars))
 	for i := 0; i < len(chars); i++ {
 		char := chars[i]
 		switch {
 		case char == '-' && i > 0 && i < len(chars) - 1: // Hyphen for range cannot be first or last character in class
+			expanded = expanded[:len(expanded) - 1]
 			if chars[i - 1] <= chars[i + 1] {
-				// Expand range to all characters between endpoints
-				for c := chars[i - 1] + 1; c <= chars[i + 1]; c++ {
-					expanded = append(expanded, c)
-				}
+				expanded = append(expanded, Range { chars[i - 1], chars[i + 1] })
 			} else {
 				// Raise error and ignore range if endpoint order is reversed
 				fmt.Printf("Syntax error: Invalid range from \"%s\" to \"%s\" - %d:%d\n",
 					formatChar(chars[i - 1]), formatChar(chars[i + 1]), location.Line, location.Col)
-				expanded = expanded[:len(expanded) - 1]
 			}
 			i++
-		default: expanded = append(expanded, chars[i])
+		default: expanded = append(expanded, Range { char, char })
 		}
 	}
-	return expanded
+	if len(expanded) <= 1 { return expanded }
+	return mergeRanges(expanded)
+}
+
+func mergeRanges(ranges []Range) []Range {
+	// Sort ranges based on minimum
+	sort.Slice(ranges, func (i, j int) bool { return ranges[i].Min < ranges[j].Min })
+	// Scan ranges and merge if overlap is found
+	merged := make([]Range, 1, len(ranges))
+	merged[0] = ranges[0]
+	for _, r := range ranges[1:] {
+		last := &merged[len(merged) - 1]
+		if r.Min <= last.Max + 1 {
+			last.Max = max(last.Max, r.Max)
+		} else {
+			merged = append(merged, r)
+		}
+	}
+	return merged
+}
+
+func negateRanges(ranges []Range) []Range {
+	// Assumes ranges are already sorted and merged
+	negated := make([]Range, 0, len(ranges) + 1)
+	var start rune = 1
+	for _, r := range ranges {
+		if r.Min > start {
+			negated = append(negated, Range { start, r.Min - 1 })
+			start = r.Max + 1
+		}
+	}
+	const MAX rune = 0x10ffff // Maximum unicode character
+	if start <= MAX { negated = append(negated, Range { start, MAX }) }
+	return negated
+}
+
+func max[T cmp.Ordered](a, b T) T {
+	if a > b { return a }
+	return b
 }
 
 func (p *Parser) unexpected() {
@@ -239,17 +281,12 @@ type UnionNode struct {
 	A, B AST
 }
 
-// Node representing an any literal. Matches any character except newlines or the end of file.
-type AnyNode struct { }
 // Node representing an identifier literal.
 type IdentifierNode struct { Name string }
 // Node representing a string literal.
 type StringNode struct { Chars []rune }
-// Node representing a class literal. Negated classes do not match the end of file but do match newlines.
-type ClassNode struct {
-	Chars   []rune
-	Negated bool
-}
+// Node representing a class literal.
+type ClassNode struct { Ranges []Range }
 
 func (n GrammarNode) String() string {
 	lines := make([]string, 0, len(n.Rules) + len(n.Tokens) + len(n.Fragments))
@@ -262,14 +299,12 @@ func (n GrammarNode) String() string {
 func (n RuleNode) String() string {
 	return fmt.Sprintf("rule %s : %v", n.Identifier, n.Expression)
 }
-
 func (n TokenNode) String() string {
 	if n.Skip {
 		return fmt.Sprintf("token skip %s : %v", n.Identifier, n.Expression)
 	}
 	return fmt.Sprintf("token %s : %v", n.Identifier, n.Expression)
 }
-
 func (n FragmentNode) String() string {
 	return fmt.Sprintf("fragment %s : %v", n.Identifier, n.Expression)
 }
@@ -281,34 +316,15 @@ func (n RepeatOneNode) String() string { return fmt.Sprintf("(%v)+", n.Expressio
 func (n ConcatenationNode) String() string { return fmt.Sprintf("(%v %v)", n.A, n.B) }
 func (n UnionNode) String() string { return fmt.Sprintf("(%v | %v)", n.A, n.B) }
 
-func (n AnyNode) String() string { return "any" }
 func (n IdentifierNode) String() string { return fmt.Sprintf("id:%s", n.Name) }
-func (n StringNode) String() string {
-	return fmt.Sprintf("\"%s\"", formatChars(n.Chars))
-}
-
+func (n StringNode) String() string { return fmt.Sprintf("%q", string(n.Chars)) }
 func (n ClassNode) String() string {
-	if n.Negated {
-		return fmt.Sprintf("[^%s]", formatChars(n.Chars))
-	} else {
-		return fmt.Sprintf("[%s]", formatChars(n.Chars))
-	}
-}
-
-func formatChars(chars []rune) string {
-	var builder strings.Builder
-	for _, char := range chars { builder.WriteString(formatChar(char)) }
-	return builder.String()
+	ranges := make([]string, len(n.Ranges))
+	for i, r := range n.Ranges { ranges[i] = r.String() }
+	return fmt.Sprintf("[%s]", strings.Join(ranges, ","))
 }
 
 func formatChar(char rune) string {
-    switch char {
-    case '\t': return "\\t"
-    case '\n': return "\\n"
-    case '\r': return "\\r"
-    case '\b': return "\\b"
-    case '\f': return "\\f"
-    case 0:    return "\\0"
-	default:   return string(char)
-    }
+	str := fmt.Sprintf("%q", string(char))
+	return str[1:len(str) - 1]
 }

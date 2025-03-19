@@ -1,3 +1,4 @@
+/*
 grammar : rule* EOF ;
 rule
     : IDENTIFIER ":" expr ";"
@@ -15,7 +16,7 @@ expr
     | CLASS
     | "."
     ;
-
+*/
 token WHITESPACE : [ \t\n\r]+ -> skip ;
 token COMMENT    : "//" .* [\n\r\0] | "/*" [^]* "*/" -> skip ;
 

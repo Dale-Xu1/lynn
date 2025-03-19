@@ -199,14 +199,11 @@ func unexpected(char rune, location Location) {
     // Format special characters
     var str string
     switch char {
-    case ' ':  str = "space"
-    case '\t': str = "tab"
-    case '\n': str = "new line"
-    case '\r': str = "carriage return"
-    case '\b': str = "backspace"
-    case '\f': str = "form feed"
-    case 0:    str = "end of file"
-    default:   str = fmt.Sprintf("character \"%c\"", char)
+    case ' ':        str = "space"
+    case '\t':       str = "tab"
+    case '\n', '\r': str = "new line"
+    case 0:          str = "end of file"
+    default:         str = fmt.Sprintf("character \"%c\"", char)
     }
     // Print formatted error message given an unexpected character
     fmt.Printf("Syntax error: Unexpected %s - %d:%d\n", str, location.Line, location.Col)
