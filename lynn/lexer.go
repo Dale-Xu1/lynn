@@ -9,10 +9,8 @@ import (
 // Represents type of token as an enumerated integer.
 type TokenType uint
 // Location struct. Holds line and column of token.
-type Location struct {
-    Line, Col uint
-}
-// Token struct. Holds type and value of token.
+type Location struct { Line, Col uint }
+// Token struct. Holds type, value, and location of token.
 type Token struct {
     Type     TokenType
     Value    string

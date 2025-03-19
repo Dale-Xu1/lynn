@@ -5,15 +5,14 @@ import (
 	"strings"
 )
 
-type Parser struct {
-	lexer *Lexer
-}
+// Parser struct. Converts token stream to abstract syntax tree (AST).
+type Parser struct { lexer *Lexer }
 
 // Returns new parser struct.
 func NewParser(lexer *Lexer) *Parser { return &Parser { lexer } }
 // Reads tokens from stream and produces an abstract syntax tree representing the grammar.
 func (p *Parser) Parse() *GrammarNode {
-	rules, tokens, fragments := make([]*RuleNode, 0, 100), make([]*TokenNode, 0, 100), make([]*FragmentNode, 0, 100)
+	rules, tokens, fragments := make([]*RuleNode, 0, 20), make([]*TokenNode, 0, 20), make([]*FragmentNode, 0, 20)
 	for !p.lexer.Match(EOF) {
 		switch rule := p.parseRule().(type) {
 		case *RuleNode: rules = append(rules, rule)
@@ -33,13 +32,13 @@ func (p *Parser) parseRule() AST {
 		// Parse following pattern: [identifier] : <expr> ;
 		if !p.lexer.Match(COLON) { return nil }
 		expression := p.parseExpressionDefault()
-		if !p.lexer.Match(SEMI) { return nil }
+		if expression == nil || !p.lexer.Match(SEMI) { return nil }
 		return &RuleNode { token.Value, expression }
 	case p.lexer.Match(TOKEN):
 		// Parse following pattern: token [identifier] : <expr> (-> skip) ;
 		token := p.lexer.Token
 		if !p.lexer.Match(IDENTIFIER) || !p.lexer.Match(COLON) { return nil }
-		expression := p.parseExpressionDefault()
+		expression := p.parseExpressionDefault(); if expression == nil { return nil }
 		// Test for presence of skip flag
 		var skip = false
 		if p.lexer.Match(ARROW) {
@@ -53,7 +52,7 @@ func (p *Parser) parseRule() AST {
 		token := p.lexer.Token
 		if !p.lexer.Match(IDENTIFIER) || !p.lexer.Match(COLON) { return nil }
 		expression := p.parseExpressionDefault()
-		if !p.lexer.Match(SEMI) { return nil }
+		if expression == nil || !p.lexer.Match(SEMI) { return nil }
 		return &FragmentNode { token.Value, expression }
 	default: return nil
 	}
@@ -97,7 +96,7 @@ func (p *Parser) parseExpression(precedence Precedence) AST {
 		default:
 			right := p.parseExpression(next + 1)
 			if right == nil { return nil }
-			left = &CombinationNode { left, right }
+			left = &ConcatenationNode { left, right }
 		}
 	}
 	return left
@@ -115,6 +114,7 @@ func (p *Parser) parsePrimary() AST {
 	case p.lexer.Match(IDENTIFIER): return &IdentifierNode { token.Value }
 	case p.lexer.Match(STRING):
 		value := token.Value[1:len(token.Value) - 1] // Remove quotation marks
+		if len(value) == 0 { fmt.Printf("Syntax error: String must contain at least one character - %d:%d", token.Location.Line, token.Location.Col)}
 		return &StringNode { reduceString([]rune(value)) }
 	case p.lexer.Match(CLASS):
 		value := token.Value[1:len(token.Value) - 1] // Remove brackets
@@ -163,7 +163,7 @@ func expandClass(chars []rune, location Location) []rune {
 			} else {
 				// Raise error and ignore range if endpoint order is reversed
 				fmt.Printf("Syntax error: Invalid range from \"%s\" to \"%s\" - %d:%d\n",
-					formatRune(chars[i - 1]), formatRune(chars[i + 1]), location.Line, location.Col)
+					formatChar(chars[i - 1]), formatChar(chars[i + 1]), location.Line, location.Col)
 				expanded = expanded[:len(expanded) - 1]
 			}
 			i++
@@ -229,8 +229,8 @@ type RepeatNode struct { Expression AST }
 // Node representing an repeat one or more quantifier. Allows one or more occurrences of the given regular expression.
 type RepeatOneNode struct { Expression AST }
 
-// Node representing a combination operation. Requires that one expression immediately follow the preceding expression.
-type CombinationNode struct {
+// Node representing a concatenation operation. Requires that one expression immediately follow the preceding expression.
+type ConcatenationNode struct {
 	A, B AST
 }
 
@@ -278,7 +278,7 @@ func (n OptionNode) String() string { return fmt.Sprintf("(%v)?", n.Expression) 
 func (n RepeatNode) String() string { return fmt.Sprintf("(%v)*", n.Expression) }
 func (n RepeatOneNode) String() string { return fmt.Sprintf("(%v)+", n.Expression) }
 
-func (n CombinationNode) String() string { return fmt.Sprintf("(%v %v)", n.A, n.B) }
+func (n ConcatenationNode) String() string { return fmt.Sprintf("(%v %v)", n.A, n.B) }
 func (n UnionNode) String() string { return fmt.Sprintf("(%v | %v)", n.A, n.B) }
 
 func (n AnyNode) String() string { return "any" }
@@ -297,13 +297,11 @@ func (n ClassNode) String() string {
 
 func formatChars(chars []rune) string {
 	var builder strings.Builder
-	for _, char := range chars {
-		builder.WriteString(formatRune(char))
-	}
+	for _, char := range chars { builder.WriteString(formatChar(char)) }
 	return builder.String()
 }
 
-func formatRune(char rune) string {
+func formatChar(char rune) string {
     switch char {
     case '\t': return "\\t"
     case '\n': return "\\n"

@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"lynn/lynn"
 	"os"
 )
@@ -13,7 +12,7 @@ func main() {
 
     lexer := lynn.NewLexer(bufio.NewReader(f))
     parser := lynn.NewParser(lexer)
+    generator := lynn.NewGenerator()
 
-    ast := parser.Parse()
-    fmt.Printf("%v", ast)
+    generator.GenerateNFA(parser.Parse())
 }
