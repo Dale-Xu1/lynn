@@ -42,4 +42,4 @@ token CLASS      : "[" "^"? ([^\\\n\r\]] | ESCAPE)* "]" ;
 
 fragment DIGIT   : [0-9] ;
 fragment LETTER  : [a-zA-Z_] ;
-fragment ESCAPE  : "\\" . ;
+fragment ESCAPE  : "\\" . [^\0-a] ;
