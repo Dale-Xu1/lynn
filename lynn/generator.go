@@ -47,10 +47,9 @@ func (g *Generator) GenerateNFA(grammar *GrammarNode) NFA {
             accept = append(accept, nfa.Out)
         }
     }
-    // Disjoin all occurring ranges
-    disjoined := disjoinRanges(g.ranges)
-    fmt.Printf("%v", disjoined)
-
+    // Disjoin all occurring ranges and apply to transitions in NFA
+    expansion := disjoinRanges(g.ranges)
+    start.expand(expansion, make(map[*NFAState]bool, 50))
     return NFA { start, accept }
 }
 
@@ -105,7 +104,7 @@ func (g *Generator) expressionNFA(expression AST) (NFAFragment, bool) {
         }
         return NFAFragment { state, out }, true
     case *ClassNode:
-        var (in *NFAState; out *NFAState)
+        var in, out *NFAState
         // Add transition from in to out for each character in class
         in, out = &NFAState { make(map[Range]*NFAState, len(node.Ranges)), make([]*NFAState, 0, 1) },
             &NFAState { make(map[Range]*NFAState, 0), make([]*NFAState, 0, 1) }
@@ -129,9 +128,10 @@ func (g *Generator) getFragment(identifier string) (NFAFragment, bool) {
 }
 
 // This function converts a set of ranges to a one that is mutually disjoint and has the same union.
-// This operates by splitting the original ranges rather than merging them.
+// This operates by splitting the original ranges rather than merging them. Final output is a map from
+// the original range to its corresponding set of disjoined ranges.
 // For example: [1, 5], [4, 10] -> [1, 4], [4, 5], [5, 10]
-func disjoinRanges(ranges map[Range]bool) []Range {
+func disjoinRanges(ranges map[Range]bool) map[Range][]Range {
     type Endpoint struct { value rune; start bool }
     // Sort endpoints of all ranges, marked as start or end
     endpoints := make([]Endpoint, 0, len(ranges) * 2)
@@ -155,8 +155,43 @@ func disjoinRanges(ranges map[Range]bool) []Range {
             n--
         }
     }
-    return disjoined
+    return createExpansionMap(ranges, disjoined)
 }
+
+func createExpansionMap(ranges map[Range]bool, disjoined []Range) map[Range][]Range {
+    // Assume disjoined ranges are sorted and can be searched with binary search
+    search := func (target Range, value func (Range) rune) int {
+        ref := value(target)
+        low, high := 0, len(disjoined) - 1
+        for low <= high {
+            mid := (low + high) / 2
+            v := value(disjoined[mid]) // Allow caller to specify which endpoint of range to use for search
+            if v == ref { return mid }
+            if v < ref {
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        return -1
+    }
+    expansion := make(map[Range][]Range, len(ranges))
+    for r := range ranges {
+        // Search for disjoined range with matching endpoints
+        min, max := search(r, func (r Range) rune { return r.Min }), search(r, func (r Range) rune { return r.Max })
+        if min == -1 || max == -1 { panic("Invalid range expansion") }
+        if min == max { continue } // Expansion is unnecessary if range is unaffected
+        // Map all disjoined ranges between min and max indices to original range
+        l := max - min + 1
+        expanded := make([]Range, l); expansion[r] = expanded
+        for i := range expanded {
+            expanded[i] = disjoined[min + i]
+        }
+    }
+    return expansion
+}
+
+func (s *NFAState) AddEpsilon(states ...*NFAState) { s.Epsilon = append(s.Epsilon, states...) }
 
 func (s *NFAState) copy(states map[*NFAState]*NFAState) *NFAState {
     if state, ok := states[s]; ok { return state }
@@ -167,7 +202,20 @@ func (s *NFAState) copy(states map[*NFAState]*NFAState) *NFAState {
     return copy
 }
 
-func (s *NFAState) AddEpsilon(states ...*NFAState) { s.Epsilon = append(s.Epsilon, states...) }
+func (s *NFAState) expand(expansion map[Range][]Range, visited map[*NFAState]bool) {
+    if visited[s] { return }
+    visited[s] = true
+    expanded := make(map[Range]*NFAState, len(s.Transitions))
+    for value, state := range s.Transitions {
+        ranges, ok := expansion[value]
+        if ok {
+            for _, r := range ranges { expanded[r] = state }
+        } else { expanded[value] = state }
+        state.expand(expansion, visited)
+    }
+    for _, state := range s.Epsilon { state.expand(expansion, visited) }
+    s.Transitions = expanded
+}
 
 func (r Range) String() string {
     if r.Min == r.Max { return formatChar(r.Min) }

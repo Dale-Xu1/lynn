@@ -14,6 +14,5 @@ func main() {
     parser := lynn.NewParser(lexer)
     generator := lynn.NewGenerator()
     nfa := generator.GenerateNFA(parser.Parse())
-    _ = nfa
-    // nfa.PrintTransitions()
+    nfa.PrintTransitions()
 }
