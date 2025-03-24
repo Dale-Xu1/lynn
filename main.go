@@ -13,6 +13,9 @@ func main() {
     lexer := lynn.NewLexer(bufio.NewReader(f))
     parser := lynn.NewParser(lexer)
     generator := lynn.NewGenerator()
-    nfa := generator.GenerateNFA(parser.Parse())
-    nfa.PrintTransitions()
+
+    ast := parser.Parse()
+    nfa := generator.GenerateNFA(ast)
+    dfa := generator.NFAtoDFA(nfa)
+    dfa.PrintTransitions()
 }

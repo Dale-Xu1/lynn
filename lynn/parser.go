@@ -14,7 +14,7 @@ type Parser struct { lexer *Lexer }
 func NewParser(lexer *Lexer) *Parser { return &Parser { lexer } }
 // Reads tokens from stream and produces an abstract syntax tree representing the grammar.
 func (p *Parser) Parse() *GrammarNode {
-    rules, tokens, fragments := make([]*RuleNode, 0, 20), make([]*TokenNode, 0, 20), make([]*FragmentNode, 0, 20)
+    rules, tokens, fragments := make([]*RuleNode, 0), make([]*TokenNode, 0), make([]*FragmentNode, 0)
     for !p.lexer.Match(EOF) {
         switch rule := p.parseRule().(type) {
         case *RuleNode: rules = append(rules, rule)

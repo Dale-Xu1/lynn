@@ -4,21 +4,31 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"unsafe"
 )
 
 // Non-deterministic finite automata struct.
 type NFA struct {
     Start  *NFAState
-    Accept []*NFAState
+    Accept []*NFAState // TODO: Accept to token type
 }
 
 // Non-deterministic finite automata fragment struct. Holds references to the in and out states.
 type NFAFragment struct { In, Out *NFAState }
-// Non-deterministic finite automata state struct. Holds references to outgoing states and each transition's associated character.
+// Non-deterministic finite automata state struct.
+// Holds references to outgoing states and each transition's associated character range.
 type NFAState struct {
     Transitions map[Range]*NFAState
     Epsilon     []*NFAState
 }
+
+// Deterministic finite automata struct.
+type DFA struct {
+    Start *DFAState
+}
+// Deterministic finite automata state struct.
+// Holds references to outgoing states and each transition's associated character range.
+type DFAState struct { Transitions map[Range]*DFAState }
 
 // Represents a range between characters.
 type Range struct { Min, Max rune }
@@ -30,7 +40,7 @@ type Generator struct {
 }
 
 // Returns a new generator struct.
-func NewGenerator() *Generator { return &Generator { make(map[string]NFAFragment, 20), make(map[Range]bool, 50) } }
+func NewGenerator() *Generator { return &Generator { make(map[string]NFAFragment), make(map[Range]bool) } }
 // Converts regular expressions defined in grammar into a non-deterministic finite automata.
 func (g *Generator) GenerateNFA(grammar *GrammarNode) NFA {
     for _, fragment := range grammar.Fragments {
@@ -49,7 +59,7 @@ func (g *Generator) GenerateNFA(grammar *GrammarNode) NFA {
     }
     // Disjoin all occurring ranges and apply to transitions in NFA
     expansion := disjoinRanges(g.ranges)
-    start.expand(expansion, make(map[*NFAState]bool, 50))
+    start.expand(expansion, make(map[*NFAState]bool))
     return NFA { start, accept }
 }
 
@@ -127,6 +137,72 @@ func (g *Generator) getFragment(identifier string) (NFAFragment, bool) {
     return NFAFragment { fa.In.copy(states), states[fa.Out] }, true
 }
 
+func (g *Generator) NFAtoDFA(nfa NFA) DFA {
+    subsets := make(map[string]*DFAState)
+    start := mergeTransitions(epsilonClosure(nfa.Start), subsets)
+    return DFA { start }
+}
+
+func mergeTransitions(closure []*NFAState, subsets map[string]*DFAState) *DFAState {
+    // If closure has already been processed, return reference to DFA state
+    key := closureKey(closure)
+    if state, ok := subsets[key]; ok { return state }
+    // Go through all transitions of all states in closure and find possible subsets reachable through each range
+    l := 0
+    for _, state := range closure { l += len(state.Transitions) }
+    merged := make(map[Range][]*NFAState, l)
+    for _, state := range closure {
+        for value, s := range state.Transitions {
+            if merged[value] == nil {
+                merged[value] = []*NFAState { s }
+            } else {
+                merged[value] = append(merged[value], s)
+            }
+        }
+    }
+    // Find epsilon closures of all subsets and recursively convert to DFA states
+    transitions := make(map[Range]*DFAState, len(merged))
+    state := &DFAState{ transitions } // Create and store DFA state
+    subsets[key] = state
+    for value, states := range merged {
+        transitions[value] = mergeTransitions(epsilonClosure(states...), subsets)
+    }
+    return state
+}
+
+func closureKey(closure []*NFAState) string {
+    // Sort states by address to ensure identical subsets map to the same key
+    sort.Slice(closure, func (i, j int) bool { return uintptr(unsafe.Pointer(closure[i])) < uintptr(unsafe.Pointer(closure[j])) })
+    // Interpret state memory addresses as consecutive bytes, then reinterpret as string
+    const UINTPTR_SIZE int = int(unsafe.Sizeof(uintptr(0)))
+    bytes := make([]byte, 0, len(closure) * UINTPTR_SIZE)
+    for _, state := range closure {
+        b := (*[UINTPTR_SIZE]byte)(unsafe.Pointer(&state))
+        bytes = append(bytes, b[:]...)
+    }
+    return string(bytes)
+}
+
+func epsilonClosure(states ...*NFAState) []*NFAState {
+    // Find epsilon closure of a given set of states
+    closure, visited := make([]*NFAState, 0), make(map[*NFAState]bool)
+    for _, state := range states {
+        closure = append(closure, findEpsilonClosure(state, visited)...)
+    }
+    return closure
+}
+
+func findEpsilonClosure(state *NFAState, visited map[*NFAState]bool) []*NFAState {
+    if visited[state] { return make([]*NFAState, 0) }
+    visited[state] = true // Mark state as visited
+    closure := []*NFAState { state }
+    for _, s := range state.Epsilon {
+        // Add states reachable through epsilon transitions to closure
+        closure = append(closure, findEpsilonClosure(s, visited)...)
+    }
+    return closure
+}
+
 // This function converts a set of ranges to a one that is mutually disjoint and has the same union.
 // This operates by splitting the original ranges rather than merging them. Final output is a map from
 // the original range to its corresponding set of disjoined ranges.
@@ -193,26 +269,31 @@ func createExpansionMap(ranges map[Range]bool, disjoined []Range) map[Range][]Ra
 
 func (s *NFAState) AddEpsilon(states ...*NFAState) { s.Epsilon = append(s.Epsilon, states...) }
 
-func (s *NFAState) copy(states map[*NFAState]*NFAState) *NFAState {
-    if state, ok := states[s]; ok { return state }
+func (s *NFAState) copy(copied map[*NFAState]*NFAState) *NFAState {
+    // If state has already been copied, return stored copy
+    if state, ok := copied[s]; ok { return state }
+    // Create and store new state struct and copy transitions
     copy := &NFAState { make(map[Range]*NFAState, len(s.Transitions)), make([]*NFAState, len(s.Epsilon), cap(s.Epsilon)) }
-    states[s] = copy
-    for value, state := range s.Transitions { copy.Transitions[value] = state.copy(states) }
-    for i, state := range s.Epsilon { copy.Epsilon[i] = state.copy(states) }
+    copied[s] = copy
+    for value, state := range s.Transitions { copy.Transitions[value] = state.copy(copied) }
+    for i, state := range s.Epsilon { copy.Epsilon[i] = state.copy(copied) }
     return copy
 }
 
 func (s *NFAState) expand(expansion map[Range][]Range, visited map[*NFAState]bool) {
+    // If state has already been expanded, exit
     if visited[s] { return }
     visited[s] = true
+    // Expand transitions based on provided expansion map
     expanded := make(map[Range]*NFAState, len(s.Transitions))
     for value, state := range s.Transitions {
         ranges, ok := expansion[value]
         if ok {
             for _, r := range ranges { expanded[r] = state }
-        } else { expanded[value] = state }
+        } else { expanded[value] = state } // If range has no expansion, keep as is
         state.expand(expansion, visited)
     }
+    // Epsilon transitions are not expanded, but may reach states with transitions that need expansion
     for _, state := range s.Epsilon { state.expand(expansion, visited) }
     s.Transitions = expanded
 }
@@ -222,12 +303,14 @@ func (r Range) String() string {
     return fmt.Sprintf("%s-%s", formatChar(r.Min), formatChar(r.Max))
 }
 
+// TODO: Generalize printing to DFA
+
 // FOR DEBUG PURPOSES:
 // Prints all transitions formatted for use in a graph visualizer.
 func (n NFA) PrintTransitions() {
     fmt.Println("digraph {")
     fmt.Println("    node [shape=\"circle\"];")
-    states := make(map[*NFAState]int, 50)
+    states := make(map[*NFAState]int)
     n.Start.printTransitions(states)
     for _, state := range n.Accept { fmt.Printf("    %d [shape=\"doublecircle\"]\n", states[state]) }
     fmt.Println("}")
@@ -235,14 +318,33 @@ func (n NFA) PrintTransitions() {
 
 func (s *NFAState) printTransitions(states map[*NFAState]int) int {
     if v, ok := states[s]; ok { return v }
+    re := regexp.MustCompile(`\\([^"\\])`)
     i := len(states); states[s] = i
     for value, state := range s.Transitions {
-        re := regexp.MustCompile(`\\([^"\\])`)
         str := re.ReplaceAllString(value.String(), "\\\\$1")
         fmt.Printf("    %d -> %d [label=\"%s\"];\n", i, state.printTransitions(states), str)
     }
     for _, state := range s.Epsilon {
         fmt.Printf("    %d -> %d [label=\"ε\"];\n", i, state.printTransitions(states))
+    }
+    return i
+}
+
+func (d DFA) PrintTransitions() {
+    fmt.Println("digraph {")
+    fmt.Println("    node [shape=\"circle\"];")
+    states := make(map[*DFAState]int)
+    d.Start.printTransitions(states)
+    fmt.Println("}")
+}
+
+func (s *DFAState) printTransitions(states map[*DFAState]int) int {
+    if v, ok := states[s]; ok { return v }
+    re := regexp.MustCompile(`\\([^"\\])`)
+    i := len(states); states[s] = i
+    for value, state := range s.Transitions {
+        str := re.ReplaceAllString(value.String(), "\\\\$1")
+        fmt.Printf("    %d -> %d [label=\"%s\"];\n", i, state.printTransitions(states), str)
     }
     return i
 }
