@@ -46,4 +46,6 @@ fragment LETTER  : [a-zA-Z_] ;
 fragment ESCAPE  : "\\" . ;
 */
 
-token TEST : [a]* [b]* ;
+token IDENTIFIER : [a-z] [a-z0-9]* ;
+
+// token TEST : [a]* [b]* ;
