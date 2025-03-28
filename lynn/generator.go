@@ -2,6 +2,7 @@ package lynn
 
 import (
 	"fmt"
+	"reflect"
 	"regexp"
 	"sort"
 	"unsafe"
@@ -18,6 +19,7 @@ type NFA struct {
 // Deterministic finite automata struct.
 type DFA struct {
     Start  *DFAState
+    States []*DFAState
     Accept map[*DFAState]string
 }
 
@@ -51,13 +53,21 @@ func (g *Generator) GenerateNFA(grammar *GrammarNode) (NFA, []Range) {
     for _, fragment := range grammar.Fragments {
         // Convert fragment expressions to NFAs and add fragment to identifier map
         nfa, ok := g.expressionNFA(fragment.Expression)
-        if ok { g.fragments[fragment.Identifier] = nfa }
+        if _, exists := g.fragments[fragment.Identifier]; exists {
+            fmt.Printf("Generation error: Fragment \"%s\" is already defined\n", fragment.Identifier)
+        } else if ok { g.fragments[fragment.Identifier] = nfa }
     }
     start := &NFAState { make(map[Range]*NFAState, 0), make([]*NFAState, 0, len(grammar.Tokens)) }
-    accept := make(map[*NFAState]NFAAccept, len(grammar.Tokens))
+    accept, tokens := make(map[*NFAState]NFAAccept, len(grammar.Tokens)), make(map[string]bool)
     for i, token := range grammar.Tokens {
         // Convert token expressions to NFAs and attach fragment to final NFA
-        if nfa, ok := g.expressionNFA(token.Expression); ok {
+        nfa, ok := g.expressionNFA(token.Expression)
+        if tokens[token.Identifier] {
+            fmt.Printf("Generation error: Token \"%s\" is already defined\n", token.Identifier)
+            continue
+        }
+        tokens[token.Identifier] = true
+        if ok {
             start.AddEpsilon(nfa.In)
             accept[nfa.Out] = NFAAccept { token.Identifier, i }
         }
@@ -142,75 +152,6 @@ func (g *Generator) getFragment(identifier string) (NFAFragment, bool) {
     return NFAFragment { fa.In.copy(states), states[fa.Out] }, true
 }
 
-// Converts non-deterministic finite automata to deterministic finite automata.
-func (g *Generator) NFAtoDFA(nfa NFA) DFA {
-    subsets := make(map[string]*DFAState)
-    g.accept = make(map[*DFAState]string, len(nfa.Accept))
-    start := g.mergeTransitions([]*NFAState { nfa.Start }, subsets, nfa)
-    dfa := DFA { start, g.accept }
-    // TODO: DFA minimization
-    return dfa
-}
-
-func (g *Generator) mergeTransitions(states []*NFAState, subsets map[string]*DFAState, nfa NFA) *DFAState {
-    // Find epsilon closure of a given set of states
-    closure, visited := make([]*NFAState, 0), make(map[*NFAState]bool)
-    for _, state := range states { epsilonClosure(state, &closure, visited) }
-    // If closure has already been processed, return reference to DFA state
-    key := closureKey(closure)
-    if state := subsets[key]; state != nil { return state }
-
-    // Go through all transitions of all states in closure and find possible subsets reachable through each range
-    l := 0; for _, state := range closure { l += len(state.Transitions) }
-    merged := make(map[Range][]*NFAState, l)
-    for _, state := range closure {
-        for value, s := range state.Transitions {
-            if merged[value] != nil {
-                merged[value] = append(merged[value], s)
-            } else { merged[value] = []*NFAState { s } }
-        }
-    }
-    // Create and store DFA state
-    state := &DFAState{ make(map[Range]*DFAState, len(merged)) }
-    subsets[key] = state
-    // Handle accepting states, prioritizing tokens listed earlier
-    accept := NFAAccept { "", -1 }
-    for _, state := range closure {
-        if s, ok := nfa.Accept[state]; ok && (accept.Priority == -1 || s.Priority < accept.Priority) { accept = s }
-    }
-    if accept.Priority >= 0 { g.accept[state] = accept.Identifier }
-
-    // Convert each subset that this state may transition into its own DFA state recursively
-    for value, states := range merged {
-        state.Transitions[value] = g.mergeTransitions(states, subsets, nfa)
-    }
-    return state
-}
-
-func epsilonClosure(state *NFAState, closure *[]*NFAState, visited map[*NFAState]bool) {
-    if visited[state] { return }
-    visited[state] = true // Mark state as visited
-
-    *closure = append(*closure, state)
-    for _, s := range state.Epsilon {
-        // Add states reachable through epsilon transitions to closure
-        epsilonClosure(s, closure, visited)
-    }
-}
-
-func closureKey(closure []*NFAState) string {
-    // Sort states by address to ensure identical subsets map to the same key
-    sort.Slice(closure, func (i, j int) bool { return uintptr(unsafe.Pointer(closure[i])) < uintptr(unsafe.Pointer(closure[j])) })
-    // Interpret state memory addresses as consecutive bytes, then reinterpret as string
-    const UINTPTR_SIZE int = int(unsafe.Sizeof(uintptr(0)))
-    bytes := make([]byte, 0, len(closure) * UINTPTR_SIZE)
-    for _, state := range closure {
-        b := (*[UINTPTR_SIZE]byte)(unsafe.Pointer(&state))
-        bytes = append(bytes, b[:]...)
-    }
-    return string(bytes)
-}
-
 // This function converts a set of ranges to a one that is mutually disjoint and has the same union.
 // This operates by splitting the original ranges rather than merging them. Final output is a map from
 // the original range to its corresponding set of disjoined ranges.
@@ -273,6 +214,159 @@ func createExpansionMap(ranges map[Range]bool, disjoined []Range) map[Range][]Ra
         }
     }
     return expansion
+}
+
+// Converts non-deterministic finite automata to deterministic finite automata.
+func (g *Generator) NFAtoDFA(nfa NFA, ranges []Range) DFA {
+    subsets := make(map[string]*DFAState)
+    g.accept = make(map[*DFAState]string, len(nfa.Accept))
+    // Convert NFA to initial DFA through power-set construction
+    start := g.mergeTransitions([]*NFAState { nfa.Start }, nfa, subsets)
+    // Extract all DFA states from subset map
+    states := make([]*DFAState, 0, len(subsets))
+    for _, state := range subsets { states = append(states, state) }
+    // Find minimal DFA after construction
+    dfa := DFA { start, states, g.accept }
+    return minimizeDFA(dfa, ranges) 
+}
+
+func (g *Generator) mergeTransitions(states []*NFAState, nfa NFA, subsets map[string]*DFAState) *DFAState {
+    // Find epsilon closure of a given set of states
+    closure, visited := make([]*NFAState, 0), make(map[*NFAState]bool)
+    for _, state := range states { epsilonClosure(state, &closure, visited) }
+    // If closure has already been processed, return reference to DFA state
+    key := getClosureKey(closure)
+    if state := subsets[key]; state != nil { return state }
+
+    // Go through all transitions of all states in closure and find possible subsets reachable through each range
+    l := 0; for _, state := range closure { l += len(state.Transitions) }
+    merged := make(map[Range][]*NFAState, l)
+    for _, state := range closure {
+        for value, s := range state.Transitions {
+            if merged[value] != nil {
+                merged[value] = append(merged[value], s)
+            } else { merged[value] = []*NFAState { s } }
+        }
+    }
+    // Create and store DFA state
+    state := &DFAState{ make(map[Range]*DFAState, len(merged)) }
+    subsets[key] = state
+    if identifier := nfa.resolveAccept(closure); identifier != "" { g.accept[state] = identifier }
+    // Convert each subset that this state may transition into its own DFA state recursively
+    for value, states := range merged {
+        state.Transitions[value] = g.mergeTransitions(states, nfa, subsets)
+    }
+    return state
+}
+
+func epsilonClosure(state *NFAState, closure *[]*NFAState, visited map[*NFAState]bool) {
+    if visited[state] { return }
+    visited[state] = true // Mark state as visited
+    *closure = append(*closure, state)
+    for _, s := range state.Epsilon {
+        // Add states reachable through epsilon transitions to closure
+        epsilonClosure(s, closure, visited)
+    }
+}
+
+func getClosureKey(closure []*NFAState) string {
+    // Sort states by address to ensure identical subsets map to the same key
+    sort.Slice(closure, func (i, j int) bool { return uintptr(unsafe.Pointer(closure[i])) < uintptr(unsafe.Pointer(closure[j])) })
+    // Interpret state memory addresses as consecutive bytes, then reinterpret as string
+    const UINTPTR_SIZE int = int(unsafe.Sizeof(uintptr(0)))
+    bytes := make([]byte, 0, len(closure) * UINTPTR_SIZE)
+    for _, state := range closure {
+        b := (*[UINTPTR_SIZE]byte)(unsafe.Pointer(&state))
+        bytes = append(bytes, b[:]...)
+    }
+    return string(bytes)
+}
+
+func (nfa NFA) resolveAccept(closure []*NFAState) string {
+    // Handle accepting states, prioritizing tokens listed earlier
+    accept := NFAAccept { "", -1 }
+    for _, state := range closure {
+        s, ok := nfa.Accept[state]
+        if ok && (accept.Priority == -1 || s.Priority < accept.Priority) { accept = s }
+    }
+    return accept.Identifier
+}
+
+func minimizeDFA(dfa DFA, ranges []Range) DFA {
+    // Create initial coarse partition and work list
+    partition := getInitialPartition(dfa)
+    work := make([]map[*DFAState]bool, len(partition))
+    copy(work, partition)
+    // DFA minimization via Hopcroft's algorithm
+    for len(work) > 0 {
+        target := work[0]; work = work[1:]
+        for _, r := range ranges {
+            for i, p := range partition {
+                // Split subset in partition based on if they are able to transition to the target set on r
+                p1, p2 := splitSubset(p, target, r)
+                if len(p1) == 0 || len(p2) == 0 { continue }
+                partition[i] = p1; partition = append(partition, p2) // Does not affect the current loop
+                // If p is present in the work list, also split the subset there
+                includes := false
+                for i, w := range work {
+                    if reflect.ValueOf(w).Pointer() != reflect.ValueOf(p).Pointer() { continue }
+                    includes = true
+                    work[i] = p1; work = append(work, p2)
+                    break
+                }
+                if !includes {
+                    // Otherwise add the smaller set to the work list
+                    if len(p1) < len(p2) {
+                        work = append(work, p1)
+                    } else {
+                        work = append(work, p2)
+                    }
+                }
+            }
+        }
+    }
+    return mergeIndistinguishable(dfa, partition)
+}
+
+func getInitialPartition(dfa DFA) []map[*DFAState]bool {
+    // Separate all DFA states based on whether they are accepting or non-accepting
+    // Accepting states that resolve to different token identifiers are placed in different subsets
+    subsets := make(map[string]map[*DFAState]bool)
+    for _, state := range dfa.States {
+        identifier := dfa.Accept[state]
+        subset := subsets[identifier]
+        if subset == nil {
+            subset = make(map[*DFAState]bool)
+            subsets[identifier] = subset
+        }
+        subset[state] = true
+    }
+    partition := make([]map[*DFAState]bool, 0, len(subsets))
+    for _, subset := range subsets {
+        partition = append(partition, subset)
+    }
+    return partition
+}
+
+func splitSubset(subset map[*DFAState]bool, target map[*DFAState]bool, r Range) (map[*DFAState]bool, map[*DFAState]bool) {
+    // Given a target set and a range, go through all states in the subset and test if a transition on the given range
+    // exists such that we are able to move from the state to one in the target set
+    // p1 is the set of states where this holds, and p2 is the complement
+    p1, p2 := make(map[*DFAState]bool), make(map[*DFAState]bool)
+    for state := range subset {
+        // For the transition from the state on r, see if the next state is included in the target set
+        if target[state.Transitions[r]] {
+            p1[state] = true
+        } else {
+            p2[state] = true
+        }
+    }
+    return p1, p2
+}
+
+func mergeIndistinguishable(dfa DFA, partition []map[*DFAState]bool) DFA {
+    // TODO: Create replacement map
+    return dfa
 }
 
 func (r Range) String() string {
@@ -345,7 +439,6 @@ func (s *NFAState) printTransitions(states map[*NFAState]int) int {
     }
     return i
 }
-
 func (s *DFAState) printTransitions(states map[*DFAState]int) int {
     if v, ok := states[s]; ok { return v }
     re := regexp.MustCompile(`\\([^"\\])`)
