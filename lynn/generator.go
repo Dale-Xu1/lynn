@@ -228,7 +228,8 @@ func (g *Generator) NFAtoDFA(nfa NFA, ranges []Range) DFA {
     for _, state := range subsets { states = append(states, state) }
     // Find minimal DFA after construction
     dfa := DFA { start, states, g.accept }
-    return minimizeDFA(dfa, ranges) 
+    return dfa
+    // return minimizeDFA(dfa, ranges) 
 }
 
 func (g *Generator) mergeTransitions(states []*NFAState, nfa NFA, subsets map[string]*DFAState) *DFAState {
@@ -288,8 +289,8 @@ func (nfa NFA) resolveAccept(closure map[*NFAState]struct{}) string {
     // Handle accepting states, prioritizing tokens listed earlier
     accept := NFAAccept { "", -1 }
     for state := range closure {
-        s, ok := nfa.Accept[state]
-        if ok && (accept.Priority == -1 || s.Priority < accept.Priority) { accept = s }
+        id, ok := nfa.Accept[state]
+        if ok && (accept.Priority == -1 || id.Priority < accept.Priority) { accept = id }
     }
     return accept.Identifier
 }
@@ -303,26 +304,22 @@ func minimizeDFA(dfa DFA, ranges []Range) DFA {
     for len(work) > 0 {
         target := work[0]; work = work[1:]
         for _, r := range ranges {
-            for i, p := range partition {
+            main: for i, p := range partition {
                 // Split subset in partition based on if they are able to transition to the target set on r
                 p1, p2 := splitSubset(p, target, r)
                 if len(p1) == 0 || len(p2) == 0 { continue }
                 partition[i] = p1; partition = append(partition, p2) // Does not affect the current loop
                 // If p is present in the work list, also split the subset there
-                includes := false
                 for i, w := range work {
                     if reflect.ValueOf(w).Pointer() != reflect.ValueOf(p).Pointer() { continue }
-                    includes = true
                     work[i] = p1; work = append(work, p2)
-                    break
+                    continue main
                 }
-                if !includes {
-                    // Otherwise add the smaller set to the work list
-                    if len(p1) < len(p2) {
-                        work = append(work, p1)
-                    } else {
-                        work = append(work, p2)
-                    }
+                // Otherwise add the smaller set to the work list
+                if len(p1) < len(p2) {
+                    work = append(work, p1)
+                } else {
+                    work = append(work, p2)
                 }
             }
         }
@@ -335,11 +332,11 @@ func getInitialPartition(dfa DFA) []map[*DFAState]struct{} {
     // Accepting states that resolve to different token identifiers are placed in different subsets
     subsets := make(map[string]map[*DFAState]struct{})
     for _, state := range dfa.States {
-        identifier := dfa.Accept[state]
-        subset := subsets[identifier]
+        id := dfa.Accept[state]
+        subset := subsets[id]
         if subset == nil {
             subset = make(map[*DFAState]struct{})
-            subsets[identifier] = subset
+            subsets[id] = subset
         }
         subset[state] = struct{}{}
     }
@@ -367,13 +364,31 @@ func splitSubset(subset map[*DFAState]struct{}, target map[*DFAState]struct{}, r
 }
 
 func mergeIndistinguishable(dfa DFA, partition []map[*DFAState]struct{}) DFA {
-    // TODO: Create replacement map
-    // For each subset, choose a representative state and map all other states to the representative
-    // merge := make(map[*DFAState]*DFAState)
-    // for _, subset := range partition {
-
-    // }
-    return dfa
+    // Create replacement map
+    merge := make(map[*DFAState]*DFAState)
+    for _, subset := range partition {
+        if len(subset) == 1 { continue }
+        states := make([]*DFAState, 0, len(subset))
+        for state := range subset { states = append(states, state) }
+        // For each subset, choose a representative state and map all other states to the representative
+        representative := states[0]
+        for _, state := range states[1:] {
+            merge[state] = representative
+        }
+    }
+    // Replace start node with representative from subset
+    start := merge[dfa.Start]
+    if start == nil { start = dfa.Start }
+    // Recursively replace all states with their representatives
+    visited := make(map[*DFAState]struct{})
+    start.merge(merge, visited)
+    states, accept := make([]*DFAState, 0, len(visited)), make(map[*DFAState]string)
+    for state := range visited {
+        states = append(states, state)
+        id, ok := dfa.Accept[state]
+        if ok { accept[state] = id }
+    }
+    return DFA { start, states, accept }
 }
 
 func (r Range) String() string {
@@ -410,6 +425,20 @@ func (s *NFAState) expand(expansion map[Range][]Range, visited map[*NFAState]str
     // Epsilon transitions are not expanded, but may reach states with transitions that need expansion
     for _, state := range s.Epsilon { state.expand(expansion, visited) }
     s.Transitions = expanded
+}
+
+func (s *DFAState) merge(merge map[*DFAState]*DFAState, visited map[*DFAState]struct{}) {
+    // If state has already been visited, exit
+    if _, ok := visited[s]; ok { return }
+    visited[s] = struct{}{}
+    // For all states reachable through this state, replace with subset representative
+    for value, state := range s.Transitions {
+        if representative := merge[state]; representative != nil {
+            state = representative
+            s.Transitions[value] = state
+        }
+        state.merge(merge, visited)
+    }
 }
 
 // FOR DEBUG PURPOSES:

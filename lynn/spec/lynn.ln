@@ -18,9 +18,9 @@ expr
     ;
 */
 
-// token WHITESPACE : [ \t\n\r]+ -> skip ;
-// token COMMENT    : "//" .* [\n\r\0] | "/*" [^]* "*/" -> skip ;
-/*
+token WHITESPACE : [ \t\n\r]+ -> skip ;
+token COMMENT    : "//" .* [\n\r\0] | "/*" [^]* "*/" -> skip ;
+
 token TOKEN      : "token" ;
 token FRAGMENT   : "fragment" ;
 token SKIP       : "skip" ;
@@ -44,8 +44,3 @@ token CLASS      : "[" "^"? ([^\\\n\r\]] | ESCAPE)* "]" ;
 fragment DIGIT   : [0-9] ;
 fragment LETTER  : [a-zA-Z_] ;
 fragment ESCAPE  : "\\" . ;
-*/
-
-token IDENTIFIER : [a-z] [a-z0-9]* ;
-
-// token TEST : [a]* [b]* ;
