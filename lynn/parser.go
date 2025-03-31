@@ -35,7 +35,7 @@ func (p *Parser) parseRule() AST {
         if !p.lexer.Match(COLON) { return nil }
         expression := p.parseExpressionDefault()
         if expression == nil || !p.lexer.Match(SEMI) { return nil }
-        return &RuleNode { token.Value, expression }
+        return &RuleNode { &IdentifierNode { token.Value, token.Location }, expression }
     case p.lexer.Match(TOKEN):
         // Parse following pattern: token [identifier] : <expr> (-> skip) ;
         token := p.lexer.Token
@@ -48,14 +48,14 @@ func (p *Parser) parseRule() AST {
             skip = true
         }
         if !p.lexer.Match(SEMI) { return nil }
-        return &TokenNode { token.Value, expression, skip }
+        return &TokenNode { &IdentifierNode { token.Value, token.Location }, expression, skip }
     case p.lexer.Match(FRAGMENT):
         // Parse following pattern: fragment [identifier] : <expr> ;
         token := p.lexer.Token
         if !p.lexer.Match(IDENTIFIER) || !p.lexer.Match(COLON) { return nil }
         expression := p.parseExpressionDefault()
         if expression == nil || !p.lexer.Match(SEMI) { return nil }
-        return &FragmentNode { token.Value, expression }
+        return &FragmentNode { &IdentifierNode { token.Value, token.Location }, expression }
     default: return nil
     }
 }
@@ -113,7 +113,7 @@ func (p *Parser) parsePrimary() AST {
         return expr
 
     case p.lexer.Match(DOT): return &ClassNode { negateRanges(expandClass([]rune { '\n', '\r' }, token.Location)) }
-    case p.lexer.Match(IDENTIFIER): return &IdentifierNode { token.Value }
+    case p.lexer.Match(IDENTIFIER): return &IdentifierNode { token.Value, token.Location }
     case p.lexer.Match(STRING):
         value := token.Value[1:len(token.Value) - 1] // Remove quotation marks
         if len(value) == 0 { fmt.Printf("Syntax error: String must contain at least one character - %d:%d",
@@ -244,13 +244,13 @@ type GrammarNode struct {
 
 // Node representing a grammar rule. Specifies the rule's identifier and regular expression.
 type RuleNode struct {
-    Identifier string
+    Identifier *IdentifierNode
     Expression AST
 }
 
 // Node representing a token rule. Specifies the token's identifier and regular expression.
 type TokenNode struct {
-    Identifier string
+    Identifier *IdentifierNode
     Expression AST
     Skip       bool
 }
@@ -258,7 +258,7 @@ type TokenNode struct {
 // Node representing a rule fragment. Specifies the fragment's identifier and regular expression.
 // Fragments are used to repeat regular expressions in token rules.
 type FragmentNode struct {
-    Identifier string
+    Identifier *IdentifierNode
     Expression AST
 }
 
@@ -280,7 +280,7 @@ type UnionNode struct {
 }
 
 // Node representing an identifier literal.
-type IdentifierNode struct { Name string }
+type IdentifierNode struct { Name string; Location Location }
 // Node representing a string literal.
 type StringNode struct { Chars []rune }
 // Node representing a class literal.
