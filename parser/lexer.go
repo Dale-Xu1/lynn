@@ -3,6 +3,7 @@ package parser
 import (
 	"bufio"
 	"fmt"
+	"slices"
 )
 
 // Represents type of token as an enumerated integer.
@@ -19,25 +20,36 @@ type Token struct {
 // Represents a range between characters.
 type Range struct { Min, Max rune }
 
-const (EOF TokenType = iota; A; ABCD)
+const (/*{1}*/)
 func (t TokenType) String() string { return typeName[t] }
-var typeName = map[TokenType]string { EOF: "EOF", A: "A", ABCD: "ABCD" }
+var typeName = map[TokenType]string { /*{2}*/ }
 
-var ranges = []Range { { 0, 0 }, { 'a', 'a' }, { 'b', 'b' }, { 'c', 'c' }, { 'd', 'd' } }
+var ranges = []Range { /*{3}*/ }
 var transitions = []map[int]int {
-    { 0: 1, 1: 2 },
-    { },
-    { 2: 3 },
-    { 3: 4 },
-    { 4: 5 },
-    { },
+/*{4}*/
 }
-var accept = map[int]TokenType { 1: EOF, 2: A, 5: ABCD }
+var accept = map[int]TokenType { /*{5}*/ }
+
+// const (EOF TokenType = iota; A; ABCD)
+// func (t TokenType) String() string { return typeName[t] }
+// var typeName = map[TokenType]string { EOF: "EOF", A: "A", ABCD: "ABCD" }
+
+// var ranges = []Range { { 0, 0 }, { 'a', 'a' }, { 'b', 'b' }, { 'c', 'c' }, { 'd', 'd' } }
+// var transitions = []map[int]int {
+//     { 0: 1, 1: 2 },
+//     { },
+//     { 2: 3 },
+//     { 3: 4 },
+//     { 4: 5 },
+//     { },
+// }
+// var accept = map[int]TokenType { 1: EOF, 2: A, 5: ABCD }
 
 // Lexer struct. Produces token stream.
 type Lexer struct {
-    Token  Token
-    stream *InputStream
+    Token   Token
+    stream  *InputStream
+    handler ErrorHandler
 }
 
 // Input stream struct. Produces character stream.
@@ -48,10 +60,19 @@ type InputStream struct {
 }
 type streamData struct { char rune; location Location }
 
+// Function called when the lexer encounters an error. Expected to bring input stream to synchronization point.
+type ErrorHandler func (stream *InputStream)
+var DEFAULT_HANDLER = func (stream *InputStream) {
+    var whitespace = []rune { 0, ' ', '\t', '\n', '\r' }
+    for {
+        if char := stream.next(); slices.Contains(whitespace, char) { break }
+    }
+}
+
 // Returns new lexer struct. Initializes lexer with initial token.
-func NewLexer(reader *bufio.Reader) *Lexer {
+func NewLexer(reader *bufio.Reader, handler ErrorHandler) *Lexer {
     stream := &InputStream { reader, Location { 1, 1 }, make([]streamData, 0), make([]streamData, 0) }
-    lexer := &Lexer { Token { }, stream }
+    lexer := &Lexer { Token { }, stream, handler }
     lexer.Next()
     return lexer
 }
@@ -63,7 +84,7 @@ func (l *Lexer) Next() Token {
     i, state := 0, 0
     for {
         // Read current character in stream and add to input
-        char := l.stream.read(); input = append(input, char)
+        char := l.stream.Read(); input = append(input, char)
         next, ok := transitions[state][searchRange(char)]
         if !ok { break } // Exit loop if we cannot transition from this state on the character
         // Store the visited states since the last occurring accepting state
@@ -76,25 +97,25 @@ func (l *Lexer) Next() Token {
     var token TokenType
     for {
         // Unread current character
-        l.stream.unread()
+        l.stream.Unread()
         if t, ok := accept[state]; ok { token = t; break }
         if len(stack) == 0 {
             // If no accepting state was encountered, raise error and synchronize
             unexpected(input[i], l.stream.location)
-            l.stream.synchronize()
+            l.stream.synchronize(l.handler)
             return l.Next() // Attempt to read token again
         }
         // Restore previously visited states
         state, stack = stack[len(stack) - 1], stack[:len(stack) - 1]
         i--
     }
-    l.stream.reset()
     l.Token = Token { token, string(input[:i]), location }
+    l.stream.reset()
     return l.Token
 }
 
 // Returns the next character in the input stream while maintaining location.
-func (i *InputStream) read() rune {
+func (i *InputStream) Read() rune {
     // Store previous location in stack and read next character
     l := i.location; char := i.next()
     i.stack = append(i.stack, streamData { char, l })
@@ -120,21 +141,19 @@ func (i *InputStream) next() rune {
 }
 
 // Unreads the current character in the input stream while maintaining location.
-func (i *InputStream) unread() {
+func (i *InputStream) Unread() {
     if len(i.stack) == 0 { return }
     data := i.stack[len(i.stack) - 1]; i.stack = i.stack[:len(i.stack) - 1]
     l := i.location; i.location = data.location
     i.buffer = append(i.buffer, streamData{ data.char, l })
 }
 
-// Releases locations of previously read characters.
+// Releases previously read characters.
 func (i *InputStream) reset() { i.stack = i.stack[:0] }
-func (i *InputStream) synchronize() {
+func (i *InputStream) synchronize(handler ErrorHandler) {
     i.reset()
-    for {
-        // TODO: Allow synchronization routine to be specified externally
-        if char := i.next(); char == 0 || char == ' ' || char == '\n' { break }
-    }
+    handler(i)
+    i.reset()
 }
 
 // Run binary search on character to find index associated with the range that contains the character.
