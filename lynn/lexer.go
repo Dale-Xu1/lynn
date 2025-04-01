@@ -241,7 +241,6 @@ const (
     STRING
     CLASS
 )
-
 func (t TokenType) String() string { return typeName[t] }
 var typeName = map[TokenType]string {
     EOF:        "EOF",
