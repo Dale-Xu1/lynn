@@ -24,21 +24,6 @@ type LNFAState struct {
     Epsilon     []*LNFAState
 }
 
-// Deterministic finite automata transition value. Must be comparable and able to be converted to a string.
-type DFAValue interface {
-    comparable
-    String() string
-}
-// Deterministic finite automata struct.
-type DFA[T DFAValue] struct {
-    Start  *DFAState[T]
-    States []*DFAState[T]
-    Accept map[*DFAState[T]]string
-}
-// Deterministic finite automata state struct.
-// Holds references to outgoing states and each transition's associated value.
-type DFAState[T DFAValue] struct { Transitions map[T]*DFAState[T] }
-
 // Deterministic finite automata struct.
 type LDFA = DFA[Range]
 // Deterministic finite automata state struct.

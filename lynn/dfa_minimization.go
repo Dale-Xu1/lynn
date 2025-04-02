@@ -1,6 +1,24 @@
 package lynn
 
-import "reflect"
+import (
+	"fmt"
+	"reflect"
+)
+
+// Deterministic finite automata transition value. Must be comparable and able to be converted to a string.
+type DFAValue interface {
+    comparable
+    fmt.Stringer
+}
+// Deterministic finite automata struct.
+type DFA[T DFAValue] struct {
+    Start  *DFAState[T]
+    States []*DFAState[T]
+    Accept map[*DFAState[T]]string
+}
+// Deterministic finite automata state struct.
+// Holds references to outgoing states and each transition's associated value.
+type DFAState[T DFAValue] struct { Transitions map[T]*DFAState[T] }
 
 // Implementation of Hopcroft's algorithm. Computes the minimal DFA equivalent to the original.
 // This function modifies the original DFA states and thus is destructive.
