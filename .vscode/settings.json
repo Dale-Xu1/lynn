@@ -2,6 +2,10 @@
     "cSpell.words": [
         "Hopcroft",
         "Sprintf",
-        "unreads"
+        "unreads",
+        "LNFA",
+        "LDFA",
+        "PNFA",
+        "PDFA"
     ]
 }

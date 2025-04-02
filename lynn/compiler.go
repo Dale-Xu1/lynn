@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-func CompileLexer(file string, ast *GrammarNode, ranges []Range, dfa DFA) {
+func CompileLexer(file string, ast *GrammarNode, ranges []Range, dfa LDFA) {
 	const LEXER_TEMPLATE string = "lynn/spec/lexer.template"
 	// Read template information
 	data, err := os.ReadFile(LEXER_TEMPLATE)
@@ -35,7 +35,7 @@ func CompileLexer(file string, ast *GrammarNode, ranges []Range, dfa DFA) {
 	}
 
 	// Format state information
-	stateIndices := map[*DFAState]int { dfa.Start: 0 }
+	stateIndices := map[*LDFAState]int { dfa.Start: 0 }
 	transitions := make([]string, len(dfa.States))
 	for _, state := range dfa.States {
 		if state != dfa.Start { stateIndices[state] = len(stateIndices) }
