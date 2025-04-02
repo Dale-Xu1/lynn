@@ -9,9 +9,6 @@ import (
 	"unsafe"
 )
 
-// Represents a range between characters.
-type Range struct { Min, Max rune }
-
 // Non-deterministic finite automata struct.
 type NFA struct {
     Start  *NFAState
@@ -90,19 +87,19 @@ func (g *Generator) expressionNFA(expression AST) (NFAFragment, bool) {
     // Implementation of Thompson's construction to generate an NFA from the AST
     case *OptionNode:
         nfa, ok := g.expressionNFA(node.Expression); if !ok { return nfa, ok }
-        out := &NFAState { make(map[Range]*NFAState, 0), make([]*NFAState, 0, 1) }
+        out := &NFAState { make(map[Range]*NFAState, 0), make([]*NFAState, 0) }
         in := &NFAState { make(map[Range]*NFAState, 0), []*NFAState { nfa.In, out } }
         nfa.Out.AddEpsilon(out)
         return NFAFragment { in, out }, true
     case *RepeatNode:
         nfa, ok := g.expressionNFA(node.Expression); if !ok { return nfa, ok }
-        out := &NFAState { make(map[Range]*NFAState, 0), make([]*NFAState, 0, 1) }
+        out := &NFAState { make(map[Range]*NFAState, 0), make([]*NFAState, 0) }
         in := &NFAState { make(map[Range]*NFAState, 0), []*NFAState { nfa.In, out } }
         nfa.Out.AddEpsilon(nfa.In, out)
         return NFAFragment { in, out }, true
     case *RepeatOneNode:
         nfa, ok := g.expressionNFA(node.Expression); if !ok { return nfa, ok }
-        out := &NFAState { make(map[Range]*NFAState, 0), make([]*NFAState, 0, 1) }
+        out := &NFAState { make(map[Range]*NFAState, 0), make([]*NFAState, 0) }
         in := &NFAState { make(map[Range]*NFAState, 0), []*NFAState { nfa.In } }
         nfa.Out.AddEpsilon(nfa.In, out)
         return NFAFragment { in, out }, true
@@ -118,7 +115,7 @@ func (g *Generator) expressionNFA(expression AST) (NFAFragment, bool) {
         b, ok := g.expressionNFA(node.B); if !ok { return b, ok }
         // Create in state with epsilon transitions to in states of both fragments
         in, out := &NFAState { make(map[Range]*NFAState, 0), []*NFAState { a.In, b.In } },
-            &NFAState { make(map[Range]*NFAState, 0), make([]*NFAState, 0, 1) }
+            &NFAState { make(map[Range]*NFAState, 0), make([]*NFAState, 0) }
         a.Out.AddEpsilon(out) // Create epsilon transitions from out states of fragments to final out state
         b.Out.AddEpsilon(out)
         return NFAFragment { in, out }, true
@@ -127,19 +124,19 @@ func (g *Generator) expressionNFA(expression AST) (NFAFragment, bool) {
     case *IdentifierNode: return g.getFragment(node)
     case *StringNode:
         // Generate chain of states with transitions at each consecutive character
-        out := &NFAState { make(map[Range]*NFAState, 0), make([]*NFAState, 0, 1) }
+        out := &NFAState { make(map[Range]*NFAState, 0), make([]*NFAState, 0) }
         state := out
         for i := len(node.Chars) - 1; i >= 0; i-- {
             char := node.Chars[i]
             r := Range { char, char }; g.ranges[r] = struct{}{}
-            state = &NFAState { map[Range]*NFAState { r: state }, make([]*NFAState, 0, 1) }
+            state = &NFAState { map[Range]*NFAState { r: state }, make([]*NFAState, 0) }
         }
         return NFAFragment { state, out }, true
     case *ClassNode:
         var in, out *NFAState
         // Add transition from in to out for each character in class
-        in, out = &NFAState { make(map[Range]*NFAState, len(node.Ranges)), make([]*NFAState, 0, 1) },
-            &NFAState { make(map[Range]*NFAState, 0), make([]*NFAState, 0, 1) }
+        in, out = &NFAState { make(map[Range]*NFAState, len(node.Ranges)), make([]*NFAState, 0) },
+            &NFAState { make(map[Range]*NFAState, 0), make([]*NFAState, 0) }
         for _, r := range node.Ranges {
             in.Transitions[r] = out
             g.ranges[r] = struct{}{}

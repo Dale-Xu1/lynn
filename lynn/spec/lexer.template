@@ -1,4 +1,4 @@
-package parser
+package /*{0}*/
 
 import (
 	"bufio"
@@ -23,27 +23,13 @@ type Range struct { Min, Max rune }
 const (/*{1}*/)
 func (t TokenType) String() string { return typeName[t] }
 var typeName = map[TokenType]string { /*{2}*/ }
+var skip = map[TokenType]struct{} { /*{3}*/ }
 
-var ranges = []Range { /*{3}*/ }
+var ranges = []Range { /*{4}*/ }
 var transitions = []map[int]int {
-/*{4}*/
+/*{5}*/
 }
-var accept = map[int]TokenType { /*{5}*/ }
-
-// const (EOF TokenType = iota; A; ABCD)
-// func (t TokenType) String() string { return typeName[t] }
-// var typeName = map[TokenType]string { EOF: "EOF", A: "A", ABCD: "ABCD" }
-
-// var ranges = []Range { { 0, 0 }, { 'a', 'a' }, { 'b', 'b' }, { 'c', 'c' }, { 'd', 'd' } }
-// var transitions = []map[int]int {
-//     { 0: 1, 1: 2 },
-//     { },
-//     { 2: 3 },
-//     { 3: 4 },
-//     { 4: 5 },
-//     { },
-// }
-// var accept = map[int]TokenType { 1: EOF, 2: A, 5: ABCD }
+var accept = map[int]TokenType { /*{6}*/ }
 
 // Lexer struct. Produces token stream.
 type Lexer struct {
@@ -109,8 +95,10 @@ func (l *Lexer) Next() Token {
         state, stack = stack[len(stack) - 1], stack[:len(stack) - 1]
         i--
     }
-    l.Token = Token { token, string(input[:i]), location }
     l.stream.reset()
+    if _, ok := skip[token]; ok { return l.Next() } // Skip token
+    // Create token and store as current token
+    l.Token = Token { token, string(input[:i]), location }
     return l.Token
 }
 
@@ -193,4 +181,13 @@ func unexpected(char rune, location Location) {
     }
     // Print formatted error message given an unexpected character
     fmt.Printf("Syntax error: Unexpected %s - %d:%d\n", str, location.Line, location.Col)
+}
+
+// FOR DEBUG PURPOSES:
+// Consumes all tokens emitted by lexer and prints them to the standard output.
+func (l *Lexer) PrintTokenStream() {
+    for l.Token.Type != EOF {
+        fmt.Printf("%-7s | %-16s %-16s\n", fmt.Sprintf("%d:%d", l.Token.Location.Line, l.Token.Location.Col), l.Token.Type, l.Token.Value)
+        l.Next()
+    }
 }

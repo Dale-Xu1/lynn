@@ -1,15 +1,23 @@
 package main
 
+import (
+	"bufio"
+	"lynn/lynn"
+	"os"
+)
+
 func main() {
-    // f, _ := os.Open("lynn/spec/lynn.ln")
-    // defer f.Close()
+    f, err := os.Open("lynn/spec/lynn.ln")
+    if err != nil { panic(err) }
+    defer f.Close()
 
-    // lexer := lynn.NewLexer(bufio.NewReader(f))
-    // parser := lynn.NewParser(lexer)
+    lexer := lynn.NewLexer(bufio.NewReader(f), lynn.DEFAULT_HANDLER)
+    parser := lynn.NewParser(lexer)
+    ast := parser.Parse()
+    _ = ast
+
     // generator := lynn.NewGenerator()
-
-    // ast := parser.Parse()
     // nfa, ranges := generator.GenerateNFA(ast)
     // dfa := generator.NFAtoDFA(nfa, ranges)
-    // dfa.PrintTransitions()
+    // lynn.CompileLexer("lynn", ast, ranges, dfa)
 }
