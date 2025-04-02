@@ -47,8 +47,20 @@ type InputStream struct {
 type streamData struct { char rune; location Location }
 
 // Function called when the lexer encounters an error. Expected to bring input stream to synchronization point.
-type ErrorHandler func (stream *InputStream)
-var DEFAULT_HANDLER = func (stream *InputStream) {
+type ErrorHandler func (stream *InputStream, char rune, location Location)
+var DEFAULT_HANDLER = func (stream *InputStream, char rune, location Location) {
+    // Format special characters
+    var str string
+    switch char {
+    case ' ':        str = "space"
+    case '\t':       str = "tab"
+    case '\n', '\r': str = "new line"
+    case 0:          str = "end of file"
+    default:         str = fmt.Sprintf("character %q", string(char))
+    }
+    // Print formatted error message given an unexpected character
+    fmt.Printf("Syntax error: Unexpected %s - %d:%d\n", str, location.Line, location.Col)
+    // Find synchronization point
     var whitespace = []rune { 0, ' ', '\t', '\n', '\r' }
     for {
         if char := stream.next(); slices.Contains(whitespace, char) { break }
@@ -87,8 +99,7 @@ func (l *Lexer) Next() Token {
         if t, ok := accept[state]; ok { token = t; break }
         if len(stack) == 0 {
             // If no accepting state was encountered, raise error and synchronize
-            unexpected(input[i], l.stream.location)
-            l.stream.synchronize(l.handler)
+            l.stream.synchronize(l.handler, input[i], l.stream.location)
             return l.Next() // Attempt to read token again
         }
         // Restore previously visited states
@@ -138,9 +149,9 @@ func (i *InputStream) Unread() {
 
 // Releases previously read characters.
 func (i *InputStream) reset() { i.stack = i.stack[:0] }
-func (i *InputStream) synchronize(handler ErrorHandler) {
+func (i *InputStream) synchronize(handler ErrorHandler, char rune, location Location) {
     i.reset()
-    handler(i)
+    handler(i, char, location)
     i.reset()
 }
 
@@ -167,20 +178,6 @@ func (l *Lexer) Match(token TokenType) bool {
         return true
     }
     return false
-}
-
-func unexpected(char rune, location Location) {
-    // Format special characters
-    var str string
-    switch char {
-    case ' ':        str = "space"
-    case '\t':       str = "tab"
-    case '\n', '\r': str = "new line"
-    case 0:          str = "end of file"
-    default:         str = fmt.Sprintf("character %q", string(char))
-    }
-    // Print formatted error message given an unexpected character
-    fmt.Printf("Syntax error: Unexpected %s - %d:%d\n", str, location.Line, location.Col)
 }
 
 // FOR DEBUG PURPOSES:

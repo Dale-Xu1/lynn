@@ -216,7 +216,7 @@ func max[T cmp.Ordered](a, b T) T {
 func (p *Parser) unexpected() {
     // Raise error message describing the current token in the stream as unexpected
     token := p.lexer.Token
-    fmt.Printf("Syntax error: Unexpected token \"%s\" - %d:%d\n", token.Value, token.Location.Line, token.Location.Col)
+    fmt.Printf("Syntax error: Unexpected token %q - %d:%d\n", token.Value, token.Location.Line, token.Location.Col)
 }
 
 func (p *Parser) synchronize() {
