@@ -44,18 +44,23 @@ func NewLexerGenerator() *LexerGenerator { return &LexerGenerator { } }
 
 // Converts regular expressions defined in grammar into a non-deterministic finite automata.
 func (g *LexerGenerator) GenerateNFA(grammar *GrammarNode) (LNFA, []Range) {
-    g.fragments = make(map[string]LNFAFragment)
-    g.ranges = make(map[Range]struct{})
+    g.fragments, g.ranges = make(map[string]LNFAFragment), make(map[Range]struct{})
+    tokens := make(map[string]struct{})
     for _, fragment := range grammar.Fragments {
         // Convert fragment expressions to NFAs and add fragment to identifier map
         nfa, ok := g.expressionNFA(fragment.Expression)
         id := fragment.Identifier
         if _, exists := g.fragments[id.Name]; exists {
             fmt.Printf("Generation error: Fragment \"%s\" is already defined - %d:%d\n", id.Name, id.Location.Line, id.Location.Col)
-        } else if ok { g.fragments[id.Name] = nfa }
+        } else if ok {
+            g.fragments[id.Name] = nfa
+            tokens[id.Name] = struct{}{} // Register fragment name as used so token names don't overlap
+        }
     }
+    // If EOF is not defined, add default token to list
+    injectEOF(grammar)
     start := &LNFAState { make(map[Range]*LNFAState, 0), make([]*LNFAState, 0, len(grammar.Tokens)) }
-    accept, tokens := make(map[*LNFAState]LNFAAccept, len(grammar.Tokens)), make(map[string]struct{})
+    accept := make(map[*LNFAState]LNFAAccept, len(grammar.Tokens))
     for i, token := range grammar.Tokens {
         // Convert token expressions to NFAs and attach fragment to final NFA
         nfa, ok := g.expressionNFA(token.Expression)
@@ -66,6 +71,12 @@ func (g *LexerGenerator) GenerateNFA(grammar *GrammarNode) (LNFA, []Range) {
         }
         tokens[id.Name] = struct{}{}
         if ok {
+            // Invalid if accept node can be reached from the start node through only epsilon transitions
+            if isAccessible(nfa.In, nfa.Out, make(map[*LNFAState]struct{})) {
+                fmt.Printf("Generation error: Invalid regular expression for token \"%s\" - %d:%d\n",
+                    id.Name, id.Location.Line, id.Location.Col)
+                continue
+            }
             start.AddEpsilon(nfa.In)
             accept[nfa.Out] = LNFAAccept { id.Name, i }
         }
@@ -74,6 +85,19 @@ func (g *LexerGenerator) GenerateNFA(grammar *GrammarNode) (LNFA, []Range) {
     ranges, expansion := disjoinRanges(g.ranges)
     start.expand(expansion, make(map[*LNFAState]struct{}))
     return LNFA { start, accept }, ranges
+}
+
+func injectEOF(grammar *GrammarNode) {
+    // Test if EOF token is already defined
+    exists := false
+    for _, token := range grammar.Tokens {
+        if token.Identifier.Name == "EOF" { exists = true; break }
+    }
+    if !exists {
+        // Provide default EOF token if not defined
+        node := &TokenNode { &IdentifierNode { "EOF", Location { } }, &StringNode { []rune { 0 }, Location { } }, false }
+        grammar.Tokens = append([]*TokenNode { node }, grammar.Tokens...)
+    }
 }
 
 // Converts a given expression node from the AST to an NFA fragment.
@@ -118,6 +142,11 @@ func (g *LexerGenerator) expressionNFA(expression AST) (LNFAFragment, bool) {
     // Generate NFAs for literals
     case *IdentifierNode: return g.getFragment(node)
     case *StringNode:
+        // String cannot be empty
+        if len(node.Chars) == 0 {
+            fmt.Printf("Generation error: String must contain at least one character - %d:%d\n", node.Location.Line, node.Location.Col)
+            return LNFAFragment { }, false
+        }
         // Generate chain of states with transitions at each consecutive character
         out := &LNFAState { make(map[Range]*LNFAState, 0), make([]*LNFAState, 0) }
         state := out
@@ -150,6 +179,17 @@ func (g *LexerGenerator) getFragment(identifier *IdentifierNode) (LNFAFragment, 
     }
     states := make(map[*LNFAState]*LNFAState, 10)
     return LNFAFragment { fa.In.copy(states), states[fa.Out] }, true
+}
+
+// Test if particular state is reachable from given state through only epsilon transitions.
+func isAccessible(state *LNFAState, target *LNFAState, visited map[*LNFAState]struct{}) bool {
+    if state == target { return true }
+	if _, ok := visited[state]; ok { return false }
+	visited[state] = struct{}{}
+	for _, s := range state.Epsilon {
+		if isAccessible(s, target, visited) { return true }
+	}
+    return false
 }
 
 // This function converts a set of ranges to a one that is mutually disjoint and has the same union.

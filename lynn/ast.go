@@ -54,9 +54,9 @@ type UnionNode struct {
 // Node representing an identifier literal.
 type IdentifierNode struct { Name string; Location Location }
 // Node representing a string literal.
-type StringNode struct { Chars []rune }
+type StringNode struct { Chars []rune; Location Location }
 // Node representing a class literal.
-type ClassNode struct { Ranges []Range }
+type ClassNode struct { Ranges []Range; Location Location }
 
 func (n GrammarNode) String() string {
     lines := make([]string, 0, len(n.Rules) + len(n.Tokens) + len(n.Fragments))

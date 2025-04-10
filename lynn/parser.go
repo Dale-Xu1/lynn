@@ -111,13 +111,11 @@ func (p *Parser) parsePrimary() AST {
         if expr == nil || !p.lexer.Match(R_PAREN) { return nil }
         return expr
 
-    case p.lexer.Match(DOT): return &ClassNode { negateRanges(expandClass([]rune { '\n', '\r' }, token.Location)) }
+    case p.lexer.Match(DOT): return &ClassNode { negateRanges(expandClass([]rune { '\n', '\r' }, token.Location)), token.Location }
     case p.lexer.Match(IDENTIFIER): return &IdentifierNode { token.Value, token.Location }
     case p.lexer.Match(STRING):
         value := token.Value[1:len(token.Value) - 1] // Remove quotation marks
-        if len(value) == 0 { fmt.Printf("Syntax error: String must contain at least one character - %d:%d",
-            token.Location.Line, token.Location.Col)}
-        return &StringNode { reduceString([]rune(value)) }
+        return &StringNode { reduceString([]rune(value)), token.Location }
     case p.lexer.Match(CLASS):
         value := token.Value[1:len(token.Value) - 1] // Remove brackets
         // If caret occurs, flag class as negated and remove caret
@@ -128,7 +126,7 @@ func (p *Parser) parsePrimary() AST {
         } else {
             expanded = negateRanges(expandClass(reduceString([]rune(value[1:])), token.Location))
         }
-        return &ClassNode { expanded }
+        return &ClassNode { expanded, token.Location }
     default: return nil // Invalid expression
     }
 }
