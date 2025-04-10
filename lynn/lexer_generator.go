@@ -140,7 +140,14 @@ func (g *LexerGenerator) expressionNFA(expression AST) (LNFAFragment, bool) {
         return LNFAFragment { in, out }, true
 
     // Generate NFAs for literals
-    case *IdentifierNode: return g.getFragment(node)
+    case *IdentifierNode:
+        fa, ok := g.fragments[node.Name]
+        if !ok {
+            fmt.Printf("Generation error: Fragment \"%s\" does not exist - %d:%d\n", node.Name, node.Location.Line, node.Location.Col)
+            return LNFAFragment { }, false
+        }
+        states := make(map[*LNFAState]*LNFAState)
+        return LNFAFragment { fa.In.copy(states), states[fa.Out] }, true
     case *StringNode:
         // String cannot be empty
         if len(node.Chars) == 0 {
@@ -166,19 +173,8 @@ func (g *LexerGenerator) expressionNFA(expression AST) (LNFAFragment, bool) {
             g.ranges[r] = struct{}{}
         }
         return LNFAFragment { in, out }, true
-    default: panic("Invalid expression passed to expressionNFA()")
+    default: panic("Invalid expression passed to LexerGenerator.expressionNFA()")
     }
-}
-
-func (g *LexerGenerator) getFragment(identifier *IdentifierNode) (LNFAFragment, bool) {
-    fa, ok := g.fragments[identifier.Name]
-    if !ok {
-        fmt.Printf("Generation error: Fragment \"%s\" does not exist - %d:%d\n",
-            identifier.Name, identifier.Location.Line, identifier.Location.Col)
-        return LNFAFragment { }, false
-    }
-    states := make(map[*LNFAState]*LNFAState, 10)
-    return LNFAFragment { fa.In.copy(states), states[fa.Out] }, true
 }
 
 // Test if particular state is reachable from given state through only epsilon transitions.

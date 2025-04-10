@@ -17,11 +17,11 @@ func main() {
     ast := parser.Parse()
     fmt.Println(ast)
 
-    generator := lynn.NewLexerGenerator()
-    nfa, ranges := generator.GenerateNFA(ast)
-    dfa := generator.NFAtoDFA(nfa, ranges)
-    lynn.CompileLexer("lynn", ast, ranges, dfa)
+    // generator := lynn.NewLexerGenerator()
+    // nfa, ranges := generator.GenerateNFA(ast)
+    // dfa := generator.NFAtoDFA(nfa, ranges)
+    // lynn.CompileLexer("lynn", ast, ranges, dfa)
 
-    // generator := lynn.NewParserGenerator()
-    // generator.GenerateNFA(ast)
+    generator := lynn.NewParserGenerator()
+    generator.GenerateNFA(ast)
 }

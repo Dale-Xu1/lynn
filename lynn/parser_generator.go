@@ -2,6 +2,10 @@ package lynn
 
 import "fmt"
 
+// Identifier of a token. Used as transition values for parser finite automata.
+type TokenIdentifier string
+func (t TokenIdentifier) String() string { return string(t) }
+
 // Non-deterministic finite automata struct.
 type PNFA struct {
     Start  *PNFAState
@@ -14,13 +18,9 @@ type PNFAAccept struct { Identifier string; Priority int }
 // Non-deterministic finite automata state struct.
 // Holds references to outgoing states and each transition's associated token identifier.
 type PNFAState struct {
-    Transitions map[Range]*PNFAState
+    Transitions map[TokenIdentifier]*PNFAState
     Epsilon     []*PNFAState
 }
-
-// Identifier of a token. Used as transition values for parser finite automata.
-type TokenIdentifier string
-func (t TokenIdentifier) String() string { return string(t) }
 
 // Deterministic finite automata struct.
 type PDFA = DFA[TokenIdentifier]
@@ -50,7 +50,6 @@ func (g *ParserGenerator) GenerateNFA(grammar *GrammarNode) {
             g.strings[string(str.Chars)] = id
         }
     }
-
 }
 
 // Converts a given expression node from the AST to an NFA fragment.
@@ -59,20 +58,20 @@ func (g *ParserGenerator) expressionNFA(expression AST) (PNFAFragment, bool) {
     // Implementation of Thompson's construction to generate an NFA from the AST
     case *OptionNode:
         nfa, ok := g.expressionNFA(node.Expression); if !ok { return nfa, ok }
-        out := &PNFAState { make(map[Range]*PNFAState, 0), make([]*PNFAState, 0) }
-        in := &PNFAState { make(map[Range]*PNFAState, 0), []*PNFAState { nfa.In, out } }
+        out := &PNFAState { make(map[TokenIdentifier]*PNFAState, 0), make([]*PNFAState, 0) }
+        in := &PNFAState { make(map[TokenIdentifier]*PNFAState, 0), []*PNFAState { nfa.In, out } }
         nfa.Out.AddEpsilon(out)
         return PNFAFragment { in, out }, true
     case *RepeatNode:
         nfa, ok := g.expressionNFA(node.Expression); if !ok { return nfa, ok }
-        out := &PNFAState { make(map[Range]*PNFAState, 0), make([]*PNFAState, 0) }
-        in := &PNFAState { make(map[Range]*PNFAState, 0), []*PNFAState { nfa.In, out } }
+        out := &PNFAState { make(map[TokenIdentifier]*PNFAState, 0), make([]*PNFAState, 0) }
+        in := &PNFAState { make(map[TokenIdentifier]*PNFAState, 0), []*PNFAState { nfa.In, out } }
         nfa.Out.AddEpsilon(nfa.In, out)
         return PNFAFragment { in, out }, true
     case *RepeatOneNode:
         nfa, ok := g.expressionNFA(node.Expression); if !ok { return nfa, ok }
-        out := &PNFAState { make(map[Range]*PNFAState, 0), make([]*PNFAState, 0) }
-        in := &PNFAState { make(map[Range]*PNFAState, 0), []*PNFAState { nfa.In } }
+        out := &PNFAState { make(map[TokenIdentifier]*PNFAState, 0), make([]*PNFAState, 0) }
+        in := &PNFAState { make(map[TokenIdentifier]*PNFAState, 0), []*PNFAState { nfa.In } }
         nfa.Out.AddEpsilon(nfa.In, out)
         return PNFAFragment { in, out }, true
 
@@ -86,8 +85,8 @@ func (g *ParserGenerator) expressionNFA(expression AST) (PNFAFragment, bool) {
         a, ok := g.expressionNFA(node.A); if !ok { return a, ok }
         b, ok := g.expressionNFA(node.B); if !ok { return b, ok }
         // Create in state with epsilon transitions to in states of both fragments
-        in, out := &PNFAState { make(map[Range]*PNFAState, 0), []*PNFAState { a.In, b.In } },
-            &PNFAState { make(map[Range]*PNFAState, 0), make([]*PNFAState, 0) }
+        in, out := &PNFAState { make(map[TokenIdentifier]*PNFAState, 0), []*PNFAState { a.In, b.In } },
+            &PNFAState { make(map[TokenIdentifier]*PNFAState, 0), make([]*PNFAState, 0) }
         a.Out.AddEpsilon(out) // Create epsilon transitions from out states of fragments to final out state
         b.Out.AddEpsilon(out)
         return PNFAFragment { in, out }, true
@@ -95,13 +94,22 @@ func (g *ParserGenerator) expressionNFA(expression AST) (PNFAFragment, bool) {
     // Generate NFAs for literals
     case *IdentifierNode:
         // Follows NFA construction for rule references based on LL(*)
-        panic("") // TODO: Rule references
+        panic("") // TODO: Token and rule references
     case *StringNode:
-        panic("") // TODO: Token references
+        // Find associated token identifier and create transition on that identifier
+        str := string(node.Chars)
+        id, ok := g.strings[str]
+        if ok {
+            fmt.Printf("Generation error: No token explicitly matches \"%s\" - %d:%d\n", str, node.Location.Line, node.Location.Col)
+            return PNFAFragment { }, false
+        }
+        out := &PNFAState { make(map[TokenIdentifier]*PNFAState, 0), make([]*PNFAState, 0) }
+        in := &PNFAState { map[TokenIdentifier]*PNFAState { id: out }, make([]*PNFAState, 0) }
+        return PNFAFragment { in, out }, true
     case *ClassNode:
         fmt.Printf("Generation error: Classes can not be used in rule expressions - %d:%d\n", node.Location.Line, node.Location.Col)
         return PNFAFragment { }, false
-    default: panic("Invalid expression passed to expressionNFA()")
+    default: panic("Invalid expression passed to ParserGenerator.expressionNFA()")
     }
 }
 
