@@ -50,7 +50,7 @@ func (g *LexerGenerator) GenerateNFA(grammar *GrammarNode) (LNFA, []Range) {
         // Convert fragment expressions to NFAs and add fragment to identifier map
         nfa, ok := g.expressionNFA(fragment.Expression)
         id := fragment.Identifier
-        if _, exists := g.fragments[id.Name]; exists {
+        if _, exists := tokens[id.Name]; exists {
             fmt.Printf("Generation error: Fragment \"%s\" is already defined - %d:%d\n", id.Name, id.Location.Line, id.Location.Col)
         } else if ok {
             g.fragments[id.Name] = nfa
@@ -89,15 +89,12 @@ func (g *LexerGenerator) GenerateNFA(grammar *GrammarNode) (LNFA, []Range) {
 
 func injectEOF(grammar *GrammarNode) {
     // Test if EOF token is already defined
-    exists := false
     for _, token := range grammar.Tokens {
-        if token.Identifier.Name == "EOF" { exists = true; break }
+        if token.Identifier.Name == "EOF" { return }
     }
-    if !exists {
-        // Provide default EOF token if not defined
-        node := &TokenNode { &IdentifierNode { "EOF", Location { } }, &StringNode { []rune { 0 }, Location { } }, false }
-        grammar.Tokens = append([]*TokenNode { node }, grammar.Tokens...)
-    }
+    // Provide default EOF token if not defined
+    node := &TokenNode { &IdentifierNode { "EOF", Location { } }, &StringNode { []rune { 0 }, Location { } }, false }
+    grammar.Tokens = append([]*TokenNode { node }, grammar.Tokens...)
 }
 
 // Converts a given expression node from the AST to an NFA fragment.
@@ -246,8 +243,7 @@ func createExpansionMap(ranges map[Range]struct{}, disjoined []Range) map[Range]
         if min == -1 || max == -1 { panic("Invalid range expansion") }
         if min == max { continue } // Expansion is unnecessary if range is unaffected
         // Map all disjoined ranges between min and max indices to original range
-        l := max - min + 1
-        expanded := make([]Range, l); expansion[r] = expanded
+        expanded := make([]Range, max - min + 1); expansion[r] = expanded
         for i := range expanded {
             expanded[i] = disjoined[min + i]
         }
