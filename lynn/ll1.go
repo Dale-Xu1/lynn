@@ -1,15 +1,19 @@
 package lynn
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
 
 type Symbol interface { isSymbol() }
 type NonTerminal uint
 type Terminal rune
 
 type LL1Parser struct {
-    rules map[NonTerminal][][]Symbol
-    start NonTerminal
-    first map[NonTerminal]map[Terminal]struct{}
+    rules  map[NonTerminal][][]Symbol
+    start  NonTerminal
+    first  map[NonTerminal]map[Terminal]struct{}
+    follow map[NonTerminal]map[Terminal]struct{}
 }
 
 const EPSILON Terminal = '!'
@@ -41,12 +45,25 @@ func NewLL1Parser() *LL1Parser {
         rules,
         E,
         make(map[NonTerminal]map[Terminal]struct{}),
+        make(map[NonTerminal]map[Terminal]struct{}),
     }
 }
 
+// TODO: Precedence and associativity disambiguation
+// TODO: Left recursion elimination (indirect left recursion detection for error handling?)
+// TODO: Left factoring
+
 func (p *LL1Parser) Parse() {
-    for nt := range p.rules {
-        fmt.Println(nt, p.findFirst(nt), p.findFollow())
+    for t := range p.rules { p.findFirst(t) }
+    for t := range p.rules { p.findFollow(t) }
+
+    // TODO: Construct parse table
+
+    nts := make([]NonTerminal, 0, len(p.rules))
+    for nt := range p.rules { nts = append(nts, nt) }
+    slices.Sort(nts)
+    for _, nt := range nts {
+        fmt.Println(nt, p.first[nt], p.follow[nt])
     }
 }
 
@@ -76,9 +93,30 @@ func (p *LL1Parser) ruleFirst(first map[Terminal]struct{}, rule []Symbol) {
     }
 }
 
-func (p *LL1Parser) findFollow() map[Terminal]struct{} {
+func (p *LL1Parser) findFollow(symbol NonTerminal) map[Terminal]struct{} {
+    if follow, ok := p.follow[symbol]; ok { return follow }
     follow := make(map[Terminal]struct{})
+    p.follow[symbol] = follow
+    if symbol == p.start { follow[END] = struct{}{} }
+    for lhs, rules := range p.rules {
+        for _, rule := range rules { p.ruleFollow(symbol, follow, lhs, rule) }
+    }
     return follow
+}
+
+func (p *LL1Parser) ruleFollow(symbol NonTerminal, follow map[Terminal]struct{}, lhs NonTerminal, rule []Symbol) {
+    main: for i, s := range rule {
+        if s == symbol {
+            for _, s := range rule[i + 1:] {
+                f := p.findFirst(s)
+                for t := range f {
+                    if t != EPSILON { follow[t] = struct{}{} }
+                }
+                if _, ok := f[EPSILON]; !ok { continue main }
+            }
+            for t := range p.findFollow(lhs) { follow[t] = struct{}{} }
+        }
+    }
 }
 
 func (t NonTerminal) isSymbol() { }
