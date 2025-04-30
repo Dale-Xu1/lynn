@@ -1,8 +1,6 @@
 package main
 
-import (
-	"lynn/lynn"
-)
+import "lynn/test"
 
 func main() {
     // f, err := os.Open("lynn/spec/lynn.ln")
@@ -19,9 +17,6 @@ func main() {
     // dfa := generator.NFAtoDFA(nfa, ranges)
     // lynn.CompileLexer("lynn", ast, ranges, dfa)
 
-    // generator := lynn.NewParserGenerator()
-    // generator.GenerateNFA(ast)
-
-    parser := lynn.NewLL1Parser()
+    parser := test.NewLALRParser()
     parser.Parse()
 }

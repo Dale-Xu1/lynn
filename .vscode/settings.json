@@ -6,6 +6,7 @@
         "LNFA",
         "LDFA",
         "PNFA",
-        "PDFA"
+        "PDFA",
+        "LALR"
     ]
 }
