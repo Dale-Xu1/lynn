@@ -1,6 +1,10 @@
 package test
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+	"unsafe"
+)
 
 type Symbol interface { isSymbol() }
 type Terminal rune
@@ -27,9 +31,7 @@ type LALRParser struct {
     nonTerminals []NonTerminal
     productions  []Production
     start        NonTerminal
-
     first        map[Symbol]map[Terminal]struct{}
-    follow       map[NonTerminal]map[Terminal]struct{}
 }
 
 func NewLALRParser() *LALRParser {
@@ -49,16 +51,26 @@ func NewLALRParser() *LALRParser {
         productions,
         S,
         make(map[Symbol]map[Terminal]struct{}),
-        make(map[NonTerminal]map[Terminal]struct{}),
     }
 }
 
 func (p *LALRParser) Parse() {
     p.findFirst()
+
     init := LR1Item { &p.productions[0], 0, END }
-    fmt.Println(p.first)
     closure := p.findClosure(map[LR1Item]struct{} { init: {} })
+    fmt.Println("== CLOSURE ==")
+    fmt.Println(getItemStateKey(closure))
+    copy := make(map[LR1Item]struct{}, len(closure))
     for item := range closure {
+        fmt.Println(item.Production.Left, item.Production.Right, item.Dot, item.Lookahead)
+        copy[item] = struct{}{}
+    }
+
+    set := p.findGoto(closure, E)
+    fmt.Println("== GOTO ==")
+    fmt.Println(getItemStateKey(set))
+    for item := range set {
         fmt.Println(item.Production.Left, item.Production.Right, item.Dot, item.Lookahead)
     }
 }
@@ -87,19 +99,13 @@ func (p *LALRParser) findRuleFirst(left NonTerminal, rule []Symbol) bool {
         for f := range p.first[s] {
             // Add all elements (ignoring epsilon) in FIRST set of symbol to FIRST set of production LHS non-terminal
             if f == EPSILON { continue }
-            if _, ok := p.first[left][f]; !ok {
-                p.first[left][f] = struct{}{}
-                changed = true
-            }
+            if _, ok := p.first[left][f]; !ok { p.first[left][f] = struct{}{}; changed = true }
         }
         // All elements in FIRST set have been found if symbol is non-nullable
         if _, ok := p.first[s][EPSILON]; !ok { return changed }
     }
     // If all symbols in the production are nullable, the LHS non-terminal is also nullable
-    if _, ok := p.first[left][EPSILON]; !ok {
-        p.first[left][EPSILON] = struct{}{}
-        changed = true
-    }
+    if _, ok := p.first[left][EPSILON]; !ok { p.first[left][EPSILON] = struct{}{}; changed = true }
     return changed
 }
 
@@ -119,62 +125,17 @@ func (p *LALRParser) findSequenceFirst(sequence []Symbol) map[Terminal]struct{} 
     return first
 }
 
-// // Computes the FOLLOW sets of all symbols in the grammar provided by the parser.
-// func (p *LALRParser) findFollow() {
-//     // Initialize empty FOLLOW sets for all non-terminals, start symbol can always be followed by EOF
-//     for _, t := range p.nonTerminals { p.follow[t] = make(map[Terminal]struct{}) }
-//     p.follow[p.start][END] = struct{}{}
-//     // Iterative implementation, repeat procedure until no changes are made
-//     for changed := true; changed; {
-//         changed = false
-//         for _, production := range p.productions {
-//             right := production.Right
-//             for i, s := range right {
-//                 // Compute FOLLOW set for each occurrence of a non-terminal based on sequence of symbols that follow it
-//                 t, ok := s.(NonTerminal); if !ok { continue }
-//                 changed = p.findSequenceFollow(t, production.Left, right[i + 1:]) || changed
-//             }
-//         }
-//     }
-// }
-
-// func (p *LALRParser) findSequenceFollow(t NonTerminal, left NonTerminal, sequence []Symbol) bool {
-//     // For a particular non-terminal, look at the FIRST set of the sequence of symbols that follow it
-//     // If all symbols are nullable, the FOLLOW set of the LHS is added too
-//     changed := false
-//     for _, s := range sequence {
-//         if s == EPSILON { continue }
-//         for f := range p.first[s] {
-//             // Add all elements (ignoring epsilon) in FIRST set of symbol to the FOLLOW set
-//             if f == EPSILON { continue }
-//             if _, ok := p.follow[t][f]; !ok {
-//                 p.follow[t][f] = struct{}{}
-//                 changed = true
-//             }
-//         }
-//         // All elements in FOLLOW set have been found if symbol is non-nullable
-//         if _, ok := p.first[s][EPSILON]; !ok { return changed }
-//     }
-//     // If all symbols in the remaining sequence are nullable, the FOLLOW set of the production LHS is added
-//     for f := range p.follow[left] {
-//         if _, ok := p.follow[t][f]; !ok {
-//             p.follow[t][f] = struct{}{}
-//             changed = true
-//         }
-//     }
-//     return changed
-// }
-
-func (p *LALRParser) findClosure(set map[LR1Item]struct{}) map[LR1Item]struct{} {
-    // Transfer items in set to new set and work list
-    closure := make(map[LR1Item]struct{}, len(set))
-    work := make([]LR1Item, 0, len(set))
-    for item := range set { closure[item] = struct{}{}; work = append(work, item) }
+// Computes the closure set of a set of LR(1) items.
+func (p *LALRParser) findClosure(items map[LR1Item]struct{}) map[LR1Item]struct{} {
+    // Transfer items in set to closure set and work list
+    closure := make(map[LR1Item]struct{}, len(items))
+    work := make([]LR1Item, 0, len(items))
+    for item := range items { closure[item] = struct{}{}; work = append(work, item) }
     // Iterative implementation, process items in work list until no new items are added
     for index := 0; index < len(work); {
         item := work[index]; index++
-        right := item.Production.Right
         // Ensure that LR(1) item still has symbols to shift and that the current symbol is a non-terminal
+        right := item.Production.Right
         if item.Dot >= len(right) { continue }
         t, ok := right[item.Dot].(NonTerminal)
         if !ok { continue }
@@ -195,6 +156,47 @@ func (p *LALRParser) findClosure(set map[LR1Item]struct{}) map[LR1Item]struct{} 
     return closure
 }
 
+// Computes the goto set of a given item and symbol to transition on.
+func (p *LALRParser) findGoto(items map[LR1Item]struct{}, symbol Symbol) map[LR1Item]struct{} {
+    set := make(map[LR1Item]struct{})
+    for item := range items {
+        // Find LR(1) items in set where the next symbol matches the one passed to the function
+        right := item.Production.Right
+        if item.Dot < len(right) && right[item.Dot] == symbol {
+            i := LR1Item { item.Production, item.Dot + 1, item.Lookahead }
+            set[i] = struct{}{}
+        }
+    }
+    if len(set) == 0 { return set }
+    return p.findClosure(set)
+}
+
+// Creates unique identifier string given a set of LR(1) items for use in a map.
+func getItemStateKey(items map[LR1Item]struct{}) string {
+    // Sort states by address to ensure identical sets map to the same key
+    list := make([]LR1Item, 0, len(items))
+    for item := range items { list = append(list, item) }
+    sort.Slice(list, func (i, j int) bool {
+        a, b := list[i], list[j]
+        if a.Production != b.Production { return uintptr(unsafe.Pointer(a.Production)) < uintptr(unsafe.Pointer(b.Production)) }
+        if a.Dot != b.Dot { return a.Dot < b.Dot }
+        return a.Lookahead < b.Lookahead
+    })
+    // Interpret state memory addresses as consecutive bytes, then reinterpret as string
+    const ITEM_SIZE int = int(unsafe.Sizeof(LR1Item { }))
+    bytes := make([]byte, 0, len(list) * ITEM_SIZE)
+    for _, item := range list {
+        b := (*[ITEM_SIZE]byte)(unsafe.Pointer(&item))
+        bytes = append(bytes, b[:]...)
+    }
+    return string(bytes)
+}
+
+// TODO: buildLR1States()
+func (p *LALRParser) buildLR1States() {
+}
+
+// TODO: buildLALRStates()
 
 const (EPSILON Terminal = 'ε'; END = '$')
 const (S NonTerminal = iota; E; T; F)
