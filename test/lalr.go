@@ -21,6 +21,11 @@ type LR1Item struct {
     Lookahead  Terminal
 }
 
+type LR1State struct {
+    items       map[LR1Item]struct{}
+    transitions map[Symbol]*LR1State
+}
+
 type ItemCore struct {
     Production *Production
     Dot        int
@@ -31,6 +36,7 @@ type LALRParser struct {
     nonTerminals []NonTerminal
     productions  []Production
     start        NonTerminal
+    augmented    *Production
     first        map[Symbol]map[Terminal]struct{}
 }
 
@@ -38,7 +44,6 @@ func NewLALRParser() *LALRParser {
     terminals := []Terminal { '+', '*', '(', ')', 'x' }
     nonTerminals := []NonTerminal { S, E, T, F }
     productions := []Production {
-        { S, []Symbol { E } },
         { E, []Symbol { E, Terminal('+'), T } },
         { E, []Symbol { T } },
         { T, []Symbol { T, Terminal('*'), F } },
@@ -49,30 +54,19 @@ func NewLALRParser() *LALRParser {
     return &LALRParser {
         terminals, nonTerminals,
         productions,
-        S,
+        E,
+        nil,
         make(map[Symbol]map[Terminal]struct{}),
     }
 }
 
 func (p *LALRParser) Parse() {
+    // Augment grammar with new start state
+    p.productions = append(p.productions, Production { S, []Symbol { p.start } })
+    p.augmented = &p.productions[len(p.productions) - 1]
+    // Find first set and construct LR(1) states
     p.findFirst()
-
-    init := LR1Item { &p.productions[0], 0, END }
-    closure := p.findClosure(map[LR1Item]struct{} { init: {} })
-    fmt.Println("== CLOSURE ==")
-    fmt.Println(getItemStateKey(closure))
-    copy := make(map[LR1Item]struct{}, len(closure))
-    for item := range closure {
-        fmt.Println(item.Production.Left, item.Production.Right, item.Dot, item.Lookahead)
-        copy[item] = struct{}{}
-    }
-
-    set := p.findGoto(closure, E)
-    fmt.Println("== GOTO ==")
-    fmt.Println(getItemStateKey(set))
-    for item := range set {
-        fmt.Println(item.Production.Left, item.Production.Right, item.Dot, item.Lookahead)
-    }
+    p.buildLR1States().Print()
 }
 
 // Computes the FIRST sets of all symbols in the grammar provided by the parser.
@@ -192,8 +186,43 @@ func getItemStateKey(items map[LR1Item]struct{}) string {
     return string(bytes)
 }
 
-// TODO: buildLR1States()
-func (p *LALRParser) buildLR1States() {
+// Constructs the canonical collection of LR(1) item sets.
+func (p *LALRParser) buildLR1States() *LR1State {
+    // Find closure of initial item
+    closure := p.findClosure(map[LR1Item]struct{} { { p.augmented, 0, END }: {} })
+    // Initialize work list with state associated with set
+    start := &LR1State { closure, make(map[Symbol]*LR1State) }
+    states := map[string]*LR1State { getItemStateKey(start.items): start } // Register state key to state object
+    // Iterative implementation, process items in work list until no new items are added
+    work := []*LR1State { start }
+    for len(work) > 0 {
+        state := work[0]; work = work[1:]
+        // Find all outgoing transition symbols from current state
+        // Determined by symbols after the dot in the LR(1) item's production
+        transitions := make(map[Symbol]struct{})
+        for item := range state.items {
+            right := item.Production.Right
+            if item.Dot < len(right) {
+                symbol := right[item.Dot]
+                if symbol != EPSILON { transitions[symbol] = struct{}{} } // Epsilons are not valid transitions
+            }
+        }
+        // For each outgoing transition, compute the next state determined by the goto set
+        for symbol := range transitions {
+            set := p.findGoto(state.items, symbol); if len(set) == 0 { continue }
+            // Determine if the state has already been visited
+            key := getItemStateKey(set); next, ok := states[key]
+            if !ok {
+                // Create a new state and add to the work list if it has not been seen before
+                next = &LR1State{ set, make(map[Symbol]*LR1State) }
+                states[key] = next
+                work = append(work, next)
+            }
+            // Add transition to the new state to the current state
+            state.transitions[symbol] = next
+        }
+    }
+    return start
 }
 
 // TODO: buildLALRStates()
@@ -207,3 +236,35 @@ func (t NonTerminal) isSymbol() { }
 
 func (t Terminal) String() string { return string(t) }
 func (t NonTerminal) String() string { return nonTerminalName[t] }
+
+// FOR DEBUG PURPOSES:
+// Prints all all LR(1) states in a given graph and transitions between states.
+func (s *LR1State) Print() {
+    states, visited := make(map[*LR1State]int), make(map[*LR1State]struct{})
+    s.assignIdentifier(states)
+    s.printTransitions(states, visited)
+}
+
+func (s *LR1State) assignIdentifier(states map[*LR1State]int) int {
+    if v, ok := states[s]; ok { return v }
+    i := len(states); states[s] = i
+    for _, state := range s.transitions { state.assignIdentifier(states) }
+    return i
+}
+func (s *LR1State) printTransitions(states map[*LR1State]int, visited map[*LR1State]struct{}) {
+    if _, ok := visited[s]; ok { return }
+    visited[s] = struct{}{}
+    fmt.Printf("%d ", states[s])
+    for item := range s.items {
+        fmt.Printf("[%v -> ", item.Production.Left)
+        right := item.Production.Right
+        for _, symbol := range right[:item.Dot] { fmt.Print(symbol) }; fmt.Print(".")
+        for _, symbol := range right[item.Dot:] { fmt.Print(symbol) }
+        fmt.Printf(", %c] ", item.Lookahead)
+    }
+    fmt.Println()
+    for symbol, state := range s.transitions {
+        fmt.Printf("    %v -> %d\n", symbol, states[state])
+    }
+    for _, state := range s.transitions { state.printTransitions(states, visited) }
+}
