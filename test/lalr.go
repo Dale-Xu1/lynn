@@ -12,13 +12,13 @@ type Production struct {
 }
 
 type LR1Item struct {
-    Production Production
+    Production *Production
     Dot        int
     Lookahead  Terminal
 }
 
 type ItemCore struct {
-    Production Production
+    Production *Production
     Dot        int
 }
 
@@ -55,9 +55,12 @@ func NewLALRParser() *LALRParser {
 
 func (p *LALRParser) Parse() {
     p.findFirst()
-    p.findFollow()
+    init := LR1Item { &p.productions[0], 0, END }
     fmt.Println(p.first)
-    fmt.Println(p.follow)
+    closure := p.findClosure(map[LR1Item]struct{} { init: {} })
+    for item := range closure {
+        fmt.Println(item.Production.Left, item.Production.Right, item.Dot, item.Lookahead)
+    }
 }
 
 // Computes the FIRST sets of all symbols in the grammar provided by the parser.
@@ -70,12 +73,12 @@ func (p *LALRParser) findFirst() {
     for changed := true; changed; {
         changed = false
         for _, production := range p.productions {
-            changed = p.findSequenceFirst(production.Left, production.Right) || changed
+            changed = p.findRuleFirst(production.Left, production.Right) || changed
         }
     }
 }
 
-func (p *LALRParser) findSequenceFirst(left NonTerminal, rule []Symbol) bool {
+func (p *LALRParser) findRuleFirst(left NonTerminal, rule []Symbol) bool {
     // The FIRST set of a non-terminal is found by going through its productions and taking the union of the FIRST sets
     // of subsequent symbols until a non-nullable symbol is found (FIRST set does not contain epsilon)
     changed := false
@@ -100,52 +103,98 @@ func (p *LALRParser) findSequenceFirst(left NonTerminal, rule []Symbol) bool {
     return changed
 }
 
-
-// Computes the FOLLOW sets of all symbols in the grammar provided by the parser.
-func (p *LALRParser) findFollow() {
-    // Initialize empty FOLLOW sets for all non-terminals, start symbol can always be followed by EOF
-    for _, t := range p.nonTerminals { p.follow[t] = make(map[Terminal]struct{}) }
-    p.follow[p.start][END] = struct{}{}
-    // Iterative implementation, repeat procedure until no changes are made
-    for changed := true; changed; {
-        changed = false
-        for _, production := range p.productions {
-            right := production.Right
-            for i, s := range right {
-                // Compute FOLLOW set for each occurrence of a non-terminal based on sequence of symbols that follow it
-                t, ok := s.(NonTerminal); if !ok { continue }
-                changed = p.findSequenceFollow(t, production.Left, right[i + 1:]) || changed
-            }
-        }
-    }
-}
-
-func (p *LALRParser) findSequenceFollow(t NonTerminal, left NonTerminal, sequence []Symbol) bool {
-    // For a particular non-terminal, look at the FIRST set of the sequence of symbols that follow it
-    // If all symbols are nullable, the FOLLOW set of the LHS is added too
-    changed := false
+func (p *LALRParser) findSequenceFirst(sequence []Symbol) map[Terminal]struct{} {
+    first := make(map[Terminal]struct{})
     for _, s := range sequence {
         if s == EPSILON { continue }
         for f := range p.first[s] {
-            // Add all elements (ignoring epsilon) in FIRST set of symbol to the FOLLOW set
-            if f == EPSILON { continue }
-            if _, ok := p.follow[t][f]; !ok {
-                p.follow[t][f] = struct{}{}
-                changed = true
+            // Add all elements (ignoring epsilon) in FIRST set of symbol to set
+            if f != EPSILON { first[f] = struct{}{} }
+        }
+        // All elements in FIRST set have been found if symbol is non-nullable
+        if _, ok := p.first[s][EPSILON]; !ok { return first }
+    }
+    // If all symbols in the production are nullable, the sequence is also nullable
+    first[EPSILON] = struct{}{}
+    return first
+}
+
+// // Computes the FOLLOW sets of all symbols in the grammar provided by the parser.
+// func (p *LALRParser) findFollow() {
+//     // Initialize empty FOLLOW sets for all non-terminals, start symbol can always be followed by EOF
+//     for _, t := range p.nonTerminals { p.follow[t] = make(map[Terminal]struct{}) }
+//     p.follow[p.start][END] = struct{}{}
+//     // Iterative implementation, repeat procedure until no changes are made
+//     for changed := true; changed; {
+//         changed = false
+//         for _, production := range p.productions {
+//             right := production.Right
+//             for i, s := range right {
+//                 // Compute FOLLOW set for each occurrence of a non-terminal based on sequence of symbols that follow it
+//                 t, ok := s.(NonTerminal); if !ok { continue }
+//                 changed = p.findSequenceFollow(t, production.Left, right[i + 1:]) || changed
+//             }
+//         }
+//     }
+// }
+
+// func (p *LALRParser) findSequenceFollow(t NonTerminal, left NonTerminal, sequence []Symbol) bool {
+//     // For a particular non-terminal, look at the FIRST set of the sequence of symbols that follow it
+//     // If all symbols are nullable, the FOLLOW set of the LHS is added too
+//     changed := false
+//     for _, s := range sequence {
+//         if s == EPSILON { continue }
+//         for f := range p.first[s] {
+//             // Add all elements (ignoring epsilon) in FIRST set of symbol to the FOLLOW set
+//             if f == EPSILON { continue }
+//             if _, ok := p.follow[t][f]; !ok {
+//                 p.follow[t][f] = struct{}{}
+//                 changed = true
+//             }
+//         }
+//         // All elements in FOLLOW set have been found if symbol is non-nullable
+//         if _, ok := p.first[s][EPSILON]; !ok { return changed }
+//     }
+//     // If all symbols in the remaining sequence are nullable, the FOLLOW set of the production LHS is added
+//     for f := range p.follow[left] {
+//         if _, ok := p.follow[t][f]; !ok {
+//             p.follow[t][f] = struct{}{}
+//             changed = true
+//         }
+//     }
+//     return changed
+// }
+
+func (p *LALRParser) findClosure(set map[LR1Item]struct{}) map[LR1Item]struct{} {
+    // Transfer items in set to new set and work list
+    closure := make(map[LR1Item]struct{}, len(set))
+    work := make([]LR1Item, 0, len(set))
+    for item := range set { closure[item] = struct{}{}; work = append(work, item) }
+    // Iterative implementation, process items in work list until no new items are added
+    for index := 0; index < len(work); {
+        item := work[index]; index++
+        right := item.Production.Right
+        // Ensure that LR(1) item still has symbols to shift and that the current symbol is a non-terminal
+        if item.Dot >= len(right) { continue }
+        t, ok := right[item.Dot].(NonTerminal)
+        if !ok { continue }
+        // Find first first set of beta sequence, if sequence is nullable, add lookahead to set
+        first := p.findSequenceFirst(right[item.Dot + 1:])
+        if _, ok := first[EPSILON]; ok { delete(first, EPSILON); first[item.Lookahead] = struct{}{} }
+        // Look for all productions with the given non terminal as its LHS
+        for i := range p.productions {
+            production := &p.productions[i]
+            if production.Left != t { continue }
+            // Add productions to the work list, starting dot at the start and create copies for each terminal in the first set
+            for lookahead := range first {
+                i := LR1Item { production, 0, lookahead }
+                if _, ok := closure[i]; !ok { closure[i] = struct{}{}; work = append(work, i) }
             }
         }
-        // All elements in FOLLOW set have been found if symbol is non-nullable
-        if _, ok := p.first[s][EPSILON]; !ok { return changed }
     }
-    // If all symbols in the remaining sequence are nullable, the FOLLOW set of the production LHS is added
-    for f := range p.follow[left] {
-        if _, ok := p.follow[t][f]; !ok {
-            p.follow[t][f] = struct{}{}
-            changed = true
-        }
-    }
-    return changed
+    return closure
 }
+
 
 const (EPSILON Terminal = 'ε'; END = '$')
 const (S NonTerminal = iota; E; T; F)
