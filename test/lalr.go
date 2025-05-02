@@ -15,20 +15,20 @@ type Production struct {
     Right []Symbol
 }
 
+type LR0Item struct {
+    Production *Production
+    Dot        int
+}
+
 type LR1Item struct {
     Production *Production
     Dot        int
     Lookahead  Terminal
 }
 
-type LR1State struct {
-    items       map[LR1Item]struct{}
-    transitions map[Symbol]*LR1State
-}
-
-type ItemCore struct {
-    Production *Production
-    Dot        int
+type LRState struct {
+    Items       map[LR1Item]struct{}
+    Transitions map[Symbol]*LRState
 }
 
 type LALRParser struct {
@@ -64,9 +64,10 @@ func (p *LALRParser) Parse() {
     // Augment grammar with new start state
     p.productions = append(p.productions, Production { S, []Symbol { p.start } })
     p.augmented = &p.productions[len(p.productions) - 1]
-    // Find first set and construct LR(1) states
+    // Find first set and construct LALR states from LR(1) states
     p.findFirst()
-    p.buildLR1States().Print()
+    states := p.buildLALRStates(p.buildLR1States())
+    PrintStates(states)
 }
 
 // Computes the FIRST sets of all symbols in the grammar provided by the parser.
@@ -165,8 +166,115 @@ func (p *LALRParser) findGoto(items map[LR1Item]struct{}, symbol Symbol) map[LR1
     return p.findClosure(set)
 }
 
+// Constructs the canonical collection of LR(1) item sets.
+func (p *LALRParser) buildLR1States() []*LRState {
+    // Find closure of initial item
+    closure := p.findClosure(map[LR1Item]struct{} { { p.augmented, 0, END }: {} })
+    // Initialize work list with state associated with set
+    start := &LRState { closure, make(map[Symbol]*LRState) }
+    states := map[string]*LRState { getLR1ItemStateKey(start.Items): start } // Register state key to state object
+    // Iterative implementation, process items in work list until no new items are added
+    work := []*LRState { start }
+    for len(work) > 0 {
+        state := work[0]; work = work[1:]
+        // Find all outgoing transition symbols from current state
+        // Determined by symbols after the dot in the LR(1) item's production
+        transitions := make(map[Symbol]struct{})
+        for item := range state.Items {
+            right := item.Production.Right
+            if item.Dot < len(right) {
+                symbol := right[item.Dot]
+                if symbol != EPSILON { transitions[symbol] = struct{}{} } // Epsilons are not valid transitions
+            }
+        }
+        // For each outgoing transition, compute the next state determined by the goto set
+        for symbol := range transitions {
+            set := p.findGoto(state.Items, symbol); if len(set) == 0 { continue }
+            // Determine if the state has already been visited
+            key := getLR1ItemStateKey(set); next := states[key]
+            if next == nil {
+                // Create a new state and add to the work list if it has not been seen before
+                next = &LRState{ set, make(map[Symbol]*LRState) }
+                states[key] = next
+                work = append(work, next)
+            }
+            // Add transition to the new state to the current state
+            state.Transitions[symbol] = next
+        }
+    }
+    // Create slice of all states
+    s := make([]*LRState, 0, len(states))
+    for _, state := range states { s = append(s, state) }
+    return s
+}
+
+// Merges LR(1) states with identical LR(0) cores to create LALR states.
+func (p *LALRParser) buildLALRStates(states []*LRState) []*LRState {
+    // Partition LR(1) states based on their LR(0) cores
+    partition := make(map[string][]*LRState)
+    for _, state := range states {
+        // Compute LR(0) core
+        core := make(map[LR0Item]struct{})
+        for item := range state.Items { core[LR0Item { item.Production, item.Dot }] = struct{}{} }
+        // Add state to the corresponding partition
+        key := getLR0ItemStateKey(core)
+        partition[key] = append(partition[key], state)
+    }
+    // Create replacement map
+    merge := make(map[*LRState]*LRState)
+    for _, states := range partition {
+        if len(states) == 1 { continue }
+        // For each subset in the partition, choose a representative state and map all other states to the representative
+        representative := states[0]
+        for _, state := range states[1:] { merge[state] = representative }
+    }
+    // Merge states according to replacement map
+    merged := make([]*LRState, 0)
+    for _, state := range states {
+        if representative := merge[state]; representative != nil { continue }
+        // Representatives are added straight to merged state list
+        merged = append(merged, state)
+        for symbol, next := range state.Transitions {
+            // For all outgoing transitions of a state, replace the next state with its representative
+            if r := merge[next]; r != nil { state.Transitions[symbol] = r }
+        }
+    }
+    for _, state := range states {
+        representative := merge[state]; if representative == nil { continue }
+        // If state is not a representative, its data is merged into its corresponding representative
+        for item := range state.Items { representative.Items[item] = struct{}{} }
+        for symbol, next := range state.Transitions {
+            // States cannot be successfully merged if multiple transitions on the same symbol exist that go to different states
+            if r := merge[next]; r != nil { next = r }
+            if existing := representative.Transitions[symbol]; existing != next { panic("Goto conflict") }
+            representative.Transitions[symbol] = next
+        }
+    }
+    return merged
+}
+
+// Creates unique identifier string given a set of LR(0) items for use in a map.
+func getLR0ItemStateKey(items map[LR0Item]struct{}) string {
+    // Sort states by address to ensure identical sets map to the same key
+    list := make([]LR0Item, 0, len(items))
+    for item := range items { list = append(list, item) }
+    sort.Slice(list, func (i, j int) bool {
+        a, b := list[i], list[j]
+        if a.Production != b.Production { return uintptr(unsafe.Pointer(a.Production)) < uintptr(unsafe.Pointer(b.Production)) }
+        return a.Dot < b.Dot
+    })
+    // Interpret state memory addresses as consecutive bytes, then reinterpret as string
+    const ITEM_SIZE int = int(unsafe.Sizeof(LR0Item { }))
+    bytes := make([]byte, 0, len(list) * ITEM_SIZE)
+    for _, item := range list {
+        b := (*[ITEM_SIZE]byte)(unsafe.Pointer(&item))
+        bytes = append(bytes, b[:]...)
+    }
+    return string(bytes)
+}
+
 // Creates unique identifier string given a set of LR(1) items for use in a map.
-func getItemStateKey(items map[LR1Item]struct{}) string {
+func getLR1ItemStateKey(items map[LR1Item]struct{}) string {
     // Sort states by address to ensure identical sets map to the same key
     list := make([]LR1Item, 0, len(items))
     for item := range items { list = append(list, item) }
@@ -186,47 +294,6 @@ func getItemStateKey(items map[LR1Item]struct{}) string {
     return string(bytes)
 }
 
-// Constructs the canonical collection of LR(1) item sets.
-func (p *LALRParser) buildLR1States() *LR1State {
-    // Find closure of initial item
-    closure := p.findClosure(map[LR1Item]struct{} { { p.augmented, 0, END }: {} })
-    // Initialize work list with state associated with set
-    start := &LR1State { closure, make(map[Symbol]*LR1State) }
-    states := map[string]*LR1State { getItemStateKey(start.items): start } // Register state key to state object
-    // Iterative implementation, process items in work list until no new items are added
-    work := []*LR1State { start }
-    for len(work) > 0 {
-        state := work[0]; work = work[1:]
-        // Find all outgoing transition symbols from current state
-        // Determined by symbols after the dot in the LR(1) item's production
-        transitions := make(map[Symbol]struct{})
-        for item := range state.items {
-            right := item.Production.Right
-            if item.Dot < len(right) {
-                symbol := right[item.Dot]
-                if symbol != EPSILON { transitions[symbol] = struct{}{} } // Epsilons are not valid transitions
-            }
-        }
-        // For each outgoing transition, compute the next state determined by the goto set
-        for symbol := range transitions {
-            set := p.findGoto(state.items, symbol); if len(set) == 0 { continue }
-            // Determine if the state has already been visited
-            key := getItemStateKey(set); next, ok := states[key]
-            if !ok {
-                // Create a new state and add to the work list if it has not been seen before
-                next = &LR1State{ set, make(map[Symbol]*LR1State) }
-                states[key] = next
-                work = append(work, next)
-            }
-            // Add transition to the new state to the current state
-            state.transitions[symbol] = next
-        }
-    }
-    return start
-}
-
-// TODO: buildLALRStates()
-
 const (EPSILON Terminal = 'ε'; END = '$')
 const (S NonTerminal = iota; E; T; F)
 var nonTerminalName = map[NonTerminal]string { S: "S", E: "E", T: "T", F: "F" }
@@ -239,32 +306,21 @@ func (t NonTerminal) String() string { return nonTerminalName[t] }
 
 // FOR DEBUG PURPOSES:
 // Prints all all LR(1) states in a given graph and transitions between states.
-func (s *LR1State) Print() {
-    states, visited := make(map[*LR1State]int), make(map[*LR1State]struct{})
-    s.assignIdentifier(states)
-    s.printTransitions(states, visited)
-}
-
-func (s *LR1State) assignIdentifier(states map[*LR1State]int) int {
-    if v, ok := states[s]; ok { return v }
-    i := len(states); states[s] = i
-    for _, state := range s.transitions { state.assignIdentifier(states) }
-    return i
-}
-func (s *LR1State) printTransitions(states map[*LR1State]int, visited map[*LR1State]struct{}) {
-    if _, ok := visited[s]; ok { return }
-    visited[s] = struct{}{}
-    fmt.Printf("%d ", states[s])
-    for item := range s.items {
-        fmt.Printf("[%v -> ", item.Production.Left)
-        right := item.Production.Right
-        for _, symbol := range right[:item.Dot] { fmt.Print(symbol) }; fmt.Print(".")
-        for _, symbol := range right[item.Dot:] { fmt.Print(symbol) }
-        fmt.Printf(", %c] ", item.Lookahead)
+func PrintStates(states []*LRState) {
+    identifiers := make(map[*LRState]int)
+    for i, state := range states { identifiers[state] = i }
+    for i, state := range states {
+        fmt.Printf("%d ", i)
+        for item := range state.Items {
+            fmt.Printf("[%v -> ", item.Production.Left)
+            right := item.Production.Right
+            for _, symbol := range right[:item.Dot] { fmt.Print(symbol) }; fmt.Print(".")
+            for _, symbol := range right[item.Dot:] { fmt.Print(symbol) }
+            fmt.Printf(", %c] ", item.Lookahead)
+        }
+        fmt.Println()
+        for symbol, next := range state.Transitions {
+            fmt.Printf("    %v -> %d\n", symbol, identifiers[next])
+        }
     }
-    fmt.Println()
-    for symbol, state := range s.transitions {
-        fmt.Printf("    %v -> %d\n", symbol, states[state])
-    }
-    for _, state := range s.transitions { state.printTransitions(states, visited) }
 }

@@ -105,9 +105,7 @@ func mergeIndistinguishable[T DFAValue](dfa DFA[T], partition []map[*DFAState[T]
         for state := range subset { states = append(states, state) }
         // For each subset, choose a representative state and map all other states to the representative
         representative := states[0]
-        for _, state := range states[1:] {
-            merge[state] = representative
-        }
+        for _, state := range states[1:] { merge[state] = representative }
     }
     // Replace start node with representative from subset
     start := merge[dfa.Start]
