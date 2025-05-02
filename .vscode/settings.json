@@ -5,8 +5,6 @@
         "unreads",
         "LNFA",
         "LDFA",
-        "PNFA",
-        "PDFA",
         "LALR"
     ]
 }

@@ -3,6 +3,7 @@ package test
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"unsafe"
 )
 
@@ -31,6 +32,17 @@ type LRState struct {
     Transitions map[Symbol]*LRState
 }
 
+type ActionType uint
+type ActionEntry struct {
+    Type  ActionType
+    Value int
+}
+
+type LRParseTable struct {
+    Action []map[Terminal]ActionEntry
+    Goto   []map[NonTerminal]int
+}
+
 type LALRParser struct {
     terminals    []Terminal
     nonTerminals []NonTerminal
@@ -40,8 +52,14 @@ type LALRParser struct {
     first        map[Symbol]map[Terminal]struct{}
 }
 
+const (EPSILON Terminal = 'ε'; END = '$')
+const (S NonTerminal = iota; E; T; F)
+var nonTerminalName = map[NonTerminal]string { S: "S", E: "E", T: "T", F: "F" }
+
+const (SHIFT ActionType = iota; REDUCE; ACCEPT)
+
 func NewLALRParser() *LALRParser {
-    terminals := []Terminal { '+', '*', '(', ')', 'x' }
+    terminals := []Terminal { '+', '*', '(', ')', 'x', END }
     nonTerminals := []NonTerminal { S, E, T, F }
     productions := []Production {
         { E, []Symbol { E, Terminal('+'), T } },
@@ -64,17 +82,21 @@ func (p *LALRParser) Parse() {
     // Augment grammar with new start state
     p.productions = append(p.productions, Production { S, []Symbol { p.start } })
     p.augmented = &p.productions[len(p.productions) - 1]
-    // Find first set and construct LALR states from LR(1) states
+    // Find first set and construct LALR(1) states from LR(1) states
     p.findFirst()
-    states := p.buildLALRStates(p.buildLR1States())
+    states := buildLALRStates(p.buildLR1States())
+    table := p.buildParseTable(states)
     PrintStates(states)
+    table.Print(p)
 }
 
 // Computes the FIRST sets of all symbols in the grammar provided by the parser.
 func (p *LALRParser) findFirst() {
     // Initialize FIRST sets for all terminals and non-terminals
     // FIRST set of a terminal contains only itself, and FIRST sets of non-terminals are initialized empty
-    for _, t := range p.terminals { p.first[t] = map[Terminal]struct{} { t: {} } }
+    for _, t := range p.terminals {
+        if t != END { p.first[t] = map[Terminal]struct{} { t: {} } }
+    }
     for _, t := range p.nonTerminals { p.first[t] = make(map[Terminal]struct{}) }
     // Iterative implementation, repeat procedure until no changes are made
     for changed := true; changed; {
@@ -208,8 +230,8 @@ func (p *LALRParser) buildLR1States() []*LRState {
     return s
 }
 
-// Merges LR(1) states with identical LR(0) cores to create LALR states.
-func (p *LALRParser) buildLALRStates(states []*LRState) []*LRState {
+// Merges LR(1) states with identical LR(0) cores to create LALR(1) states.
+func buildLALRStates(states []*LRState) []*LRState {
     // Partition LR(1) states based on their LR(0) cores
     partition := make(map[string][]*LRState)
     for _, state := range states {
@@ -246,11 +268,66 @@ func (p *LALRParser) buildLALRStates(states []*LRState) []*LRState {
         for symbol, next := range state.Transitions {
             // States cannot be successfully merged if multiple transitions on the same symbol exist that go to different states
             if r := merge[next]; r != nil { next = r }
-            if existing := representative.Transitions[symbol]; existing != next { panic("Goto conflict") }
+            if existing := representative.Transitions[symbol]; existing != nil && existing != next {
+                fmt.Printf("Generation error: Goto conflict on symbol %v\n", symbol)
+            }
             representative.Transitions[symbol] = next
         }
     }
     return merged
+}
+
+// Construct LALR(1) parse table.
+func (p *LALRParser) buildParseTable(states []*LRState) LRParseTable {
+    // Create map from state and production structs to their respective integer identifiers
+    stateId := make(map[*LRState]int)
+    productionId := make(map[*Production]int)
+    for i, state := range states { stateId[state] = i }
+    for i := range p.productions { productionId[&p.productions[i]] = i }
+    // Initialize action and goto tables in parse table
+    table := LRParseTable {
+        make([]map[Terminal]ActionEntry, len(states)),
+        make([]map[NonTerminal]int, len(states)),
+    }
+    for i, state := range states {
+        action, jump := make(map[Terminal]ActionEntry), make(map[NonTerminal]int)
+        table.Action[i], table.Goto[i] = action, jump
+        // For all transitions of the current state, generate the corresponding shift and goto actions
+        for symbol, next := range state.Transitions {
+            id := stateId[next]
+            // Shift if the transition is on a terminal, goto if it is on a non-terminal
+            switch t := symbol.(type) {
+            case Terminal: action[t] = ActionEntry { SHIFT, stateId[next] }
+            case NonTerminal: jump[t] = id
+            }
+        }
+        for item := range state.Items {
+            // Identify all LR(1) items of the state where all symbols have been consumed
+            if item.Dot < len(item.Production.Right) { continue }
+            if item.Production == p.augmented {
+                // Register an accept action if the production being reduced is the augmented start non-terminal
+                action[END] = ActionEntry{ Type: ACCEPT }
+            } else {
+                id := productionId[item.Production]
+                if existing, ok := action[item.Lookahead]; ok {
+                    switch existing.Type {
+                    case SHIFT:
+                        // Reduce action is ignored, preferring shift action if it already exists
+                        fmt.Printf("Generation error: Shift/reduce conflict in state %d on symbol %v\n", i, item.Lookahead)
+                        continue
+                    case REDUCE:
+                        // Resolve reduce/reduce conflict by choosing reduce action with lower production identifier
+                        fmt.Printf("Generation error: Reduce/reduce conflict in state %d on symbol %v between productions %d and %d ",
+                            i, item.Lookahead, id, existing.Value)
+                        fmt.Printf("(resolution: preferring reduce %d)\n", min(id, existing.Value))
+                        if id > existing.Value { continue }
+                    }
+                }
+                action[item.Lookahead] = ActionEntry { REDUCE, id }
+            }
+        }
+    }
+    return table
 }
 
 // Creates unique identifier string given a set of LR(0) items for use in a map.
@@ -294,10 +371,6 @@ func getLR1ItemStateKey(items map[LR1Item]struct{}) string {
     return string(bytes)
 }
 
-const (EPSILON Terminal = 'ε'; END = '$')
-const (S NonTerminal = iota; E; T; F)
-var nonTerminalName = map[NonTerminal]string { S: "S", E: "E", T: "T", F: "F" }
-
 func (t Terminal) isSymbol() { }
 func (t NonTerminal) isSymbol() { }
 
@@ -305,10 +378,10 @@ func (t Terminal) String() string { return string(t) }
 func (t NonTerminal) String() string { return nonTerminalName[t] }
 
 // FOR DEBUG PURPOSES:
-// Prints all all LR(1) states in a given graph and transitions between states.
+// Prints all LR(1) states in the graph and transitions between states.
 func PrintStates(states []*LRState) {
-    identifiers := make(map[*LRState]int)
-    for i, state := range states { identifiers[state] = i }
+    ids := make(map[*LRState]int)
+    for i, state := range states { ids[state] = i }
     for i, state := range states {
         fmt.Printf("%d ", i)
         for item := range state.Items {
@@ -320,7 +393,44 @@ func PrintStates(states []*LRState) {
         }
         fmt.Println()
         for symbol, next := range state.Transitions {
-            fmt.Printf("    %v -> %d\n", symbol, identifiers[next])
+            fmt.Printf("    %v -> %d\n", symbol, ids[next])
         }
+    }
+}
+
+// FOR DEBUG PURPOSES:
+// Prints formatted parse table.
+func (t LRParseTable) Print(parser *LALRParser) {
+    fmt.Print("state  |")
+    for _, t := range parser.terminals { fmt.Printf(" %-6s |", t) }
+    fmt.Print(" |")
+    for _, t := range parser.nonTerminals { fmt.Printf(" %-6s |", t) }
+    fmt.Println()
+    l := 8 + len(parser.terminals) * 9 + 2 + len(parser.nonTerminals) * 9
+    fmt.Println(strings.Repeat("-", l))
+    for i := range t.Action {
+        fmt.Printf("%-6d |", i)
+        action, jump := t.Action[i], t.Goto[i]
+        for _, t := range parser.terminals {
+            a, ok := action[t]; if !ok { fmt.Print("        |"); continue }
+            var str string
+            switch a.Type {
+            case SHIFT:  str = fmt.Sprintf("s%d", a.Value)
+            case REDUCE: str = fmt.Sprintf("r%d", a.Value)
+            case ACCEPT: str = "acc"
+            }
+            fmt.Printf(" %-6s |", str)
+        }
+        fmt.Print(" |")
+        for _, t := range parser.nonTerminals {
+            g, ok := jump[t]
+            if ok {
+                fmt.Printf(" %-6d |", g)
+            } else {
+                fmt.Print("        |")
+            }
+        }
+        fmt.Println()
+        _ = jump
     }
 }
