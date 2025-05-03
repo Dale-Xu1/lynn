@@ -17,6 +17,7 @@ func main() {
     // dfa := generator.NFAtoDFA(nfa, ranges)
     // lynn.CompileLexer("lynn", ast, ranges, dfa)
 
-    parser := test.NewLALRParser()
+    generator := test.NewLALRParserGenerator()
+    parser := generator.Generate()
     parser.Parse()
 }

@@ -43,7 +43,7 @@ type LRParseTable struct {
     Goto   []map[NonTerminal]int
 }
 
-type LALRParser struct {
+type LALRParserGenerator struct {
     terminals    []Terminal
     nonTerminals []NonTerminal
     productions  []Production
@@ -55,13 +55,15 @@ type LALRParser struct {
 const (EPSILON Terminal = 'ε'; END = '$')
 const (S NonTerminal = iota; E; T; F)
 var nonTerminalName = map[NonTerminal]string { S: "S", E: "E", T: "T", F: "F" }
-
 const (SHIFT ActionType = iota; REDUCE; ACCEPT)
 
-func NewLALRParser() *LALRParser {
-    terminals := []Terminal { '+', '*', '(', ')', 'x', END }
-    nonTerminals := []NonTerminal { S, E, T, F }
-    productions := []Production {
+func NewLALRParserGenerator() *LALRParserGenerator { return &LALRParserGenerator { } }
+func (p *LALRParserGenerator) Generate() *ShiftReduceParser {
+    // Initialize generator with test grammar
+    p.terminals = []Terminal { '+', '*', '(', ')', 'x', END }
+    p.nonTerminals = []NonTerminal { S, E, T, F }
+    p.start = E
+    p.productions = []Production {
         { E, []Symbol { E, Terminal('+'), T } },
         { E, []Symbol { T } },
         { T, []Symbol { T, Terminal('*'), F } },
@@ -69,29 +71,21 @@ func NewLALRParser() *LALRParser {
         { F, []Symbol { Terminal('('), E, Terminal(')') } },
         { F, []Symbol { Terminal('x') } },
     }
-    return &LALRParser {
-        terminals, nonTerminals,
-        productions,
-        E,
-        nil,
-        make(map[Symbol]map[Terminal]struct{}),
-    }
-}
-
-func (p *LALRParser) Parse() {
     // Augment grammar with new start state
     p.productions = append(p.productions, Production { S, []Symbol { p.start } })
     p.augmented = &p.productions[len(p.productions) - 1]
     // Find first set and construct LALR(1) states from LR(1) states
+    p.first = make(map[Symbol]map[Terminal]struct{})
     p.findFirst()
     states := buildLALRStates(p.buildLR1States())
+    // Generate parse table and pass to shift-reduce parser
     table := p.buildParseTable(states)
-    PrintStates(states)
     table.Print(p)
+    return NewShiftReduceParser(p.productions, table)
 }
 
 // Computes the FIRST sets of all symbols in the grammar provided by the parser.
-func (p *LALRParser) findFirst() {
+func (p *LALRParserGenerator) findFirst() {
     // Initialize FIRST sets for all terminals and non-terminals
     // FIRST set of a terminal contains only itself, and FIRST sets of non-terminals are initialized empty
     for _, t := range p.terminals {
@@ -107,7 +101,7 @@ func (p *LALRParser) findFirst() {
     }
 }
 
-func (p *LALRParser) findRuleFirst(left NonTerminal, rule []Symbol) bool {
+func (p *LALRParserGenerator) findRuleFirst(left NonTerminal, rule []Symbol) bool {
     // The FIRST set of a non-terminal is found by going through its productions and taking the union of the FIRST sets
     // of subsequent symbols until a non-nullable symbol is found (FIRST set does not contain epsilon)
     changed := false
@@ -126,7 +120,7 @@ func (p *LALRParser) findRuleFirst(left NonTerminal, rule []Symbol) bool {
     return changed
 }
 
-func (p *LALRParser) findSequenceFirst(sequence []Symbol) map[Terminal]struct{} {
+func (p *LALRParserGenerator) findSequenceFirst(sequence []Symbol) map[Terminal]struct{} {
     first := make(map[Terminal]struct{})
     for _, s := range sequence {
         if s == EPSILON { continue }
@@ -143,14 +137,14 @@ func (p *LALRParser) findSequenceFirst(sequence []Symbol) map[Terminal]struct{} 
 }
 
 // Computes the closure set of a set of LR(1) items.
-func (p *LALRParser) findClosure(items map[LR1Item]struct{}) map[LR1Item]struct{} {
+func (p *LALRParserGenerator) findClosure(items map[LR1Item]struct{}) map[LR1Item]struct{} {
     // Transfer items in set to closure set and work list
     closure := make(map[LR1Item]struct{}, len(items))
     work := make([]LR1Item, 0, len(items))
     for item := range items { closure[item] = struct{}{}; work = append(work, item) }
     // Iterative implementation, process items in work list until no new items are added
-    for index := 0; index < len(work); {
-        item := work[index]; index++
+    for len(work) > 0 {
+        item := work[0]; work = work[1:]
         // Ensure that LR(1) item still has symbols to shift and that the current symbol is a non-terminal
         right := item.Production.Right
         if item.Dot >= len(right) { continue }
@@ -174,7 +168,7 @@ func (p *LALRParser) findClosure(items map[LR1Item]struct{}) map[LR1Item]struct{
 }
 
 // Computes the goto set of a given item and symbol to transition on.
-func (p *LALRParser) findGoto(items map[LR1Item]struct{}, symbol Symbol) map[LR1Item]struct{} {
+func (p *LALRParserGenerator) findGoto(items map[LR1Item]struct{}, symbol Symbol) map[LR1Item]struct{} {
     set := make(map[LR1Item]struct{})
     for item := range items {
         // Find LR(1) items in set where the next symbol matches the one passed to the function
@@ -189,16 +183,17 @@ func (p *LALRParser) findGoto(items map[LR1Item]struct{}, symbol Symbol) map[LR1
 }
 
 // Constructs the canonical collection of LR(1) item sets.
-func (p *LALRParser) buildLR1States() []*LRState {
+// The first state in the list is the start state (LR(1) item set that contains augmented start production).
+func (p *LALRParserGenerator) buildLR1States() []*LRState {
     // Find closure of initial item
     closure := p.findClosure(map[LR1Item]struct{} { { p.augmented, 0, END }: {} })
     // Initialize work list with state associated with set
     start := &LRState { closure, make(map[Symbol]*LRState) }
     states := map[string]*LRState { getLR1ItemStateKey(start.Items): start } // Register state key to state object
-    // Iterative implementation, process items in work list until no new items are added
-    work := []*LRState { start }
-    for len(work) > 0 {
-        state := work[0]; work = work[1:]
+    // Iterative implementation, process items in list list until no new items are added
+    list := []*LRState { start }
+    for index := 0; index < len(list); {
+        state := list[index]; index++
         // Find all outgoing transition symbols from current state
         // Determined by symbols after the dot in the LR(1) item's production
         transitions := make(map[Symbol]struct{})
@@ -218,37 +213,31 @@ func (p *LALRParser) buildLR1States() []*LRState {
                 // Create a new state and add to the work list if it has not been seen before
                 next = &LRState{ set, make(map[Symbol]*LRState) }
                 states[key] = next
-                work = append(work, next)
+                list = append(list, next)
             }
             // Add transition to the new state to the current state
             state.Transitions[symbol] = next
         }
     }
-    // Create slice of all states
-    s := make([]*LRState, 0, len(states))
-    for _, state := range states { s = append(s, state) }
-    return s
+    return list
 }
 
 // Merges LR(1) states with identical LR(0) cores to create LALR(1) states.
 func buildLALRStates(states []*LRState) []*LRState {
-    // Partition LR(1) states based on their LR(0) cores
-    partition := make(map[string][]*LRState)
+    // Create replacement map according to partition LR(1) of states based on their LR(0) cores
+    representatives, merge := make(map[string]*LRState), make(map[*LRState]*LRState)
     for _, state := range states {
         // Compute LR(0) core
         core := make(map[LR0Item]struct{})
         for item := range state.Items { core[LR0Item { item.Production, item.Dot }] = struct{}{} }
-        // Add state to the corresponding partition
+        // If the core has not been seen before, assign the current state as the subset's representative
+        // Otherwise map current state to its representative
         key := getLR0ItemStateKey(core)
-        partition[key] = append(partition[key], state)
-    }
-    // Create replacement map
-    merge := make(map[*LRState]*LRState)
-    for _, states := range partition {
-        if len(states) == 1 { continue }
-        // For each subset in the partition, choose a representative state and map all other states to the representative
-        representative := states[0]
-        for _, state := range states[1:] { merge[state] = representative }
+        if representative := representatives[key]; representative != nil {
+            merge[state] = representative
+        } else {
+            representatives[key] = state
+        }
     }
     // Merge states according to replacement map
     merged := make([]*LRState, 0)
@@ -278,7 +267,7 @@ func buildLALRStates(states []*LRState) []*LRState {
 }
 
 // Construct LALR(1) parse table.
-func (p *LALRParser) buildParseTable(states []*LRState) LRParseTable {
+func (p *LALRParserGenerator) buildParseTable(states []*LRState) LRParseTable {
     // Create map from state and production structs to their respective integer identifiers
     stateId := make(map[*LRState]int)
     productionId := make(map[*Production]int)
@@ -400,12 +389,10 @@ func PrintStates(states []*LRState) {
 
 // FOR DEBUG PURPOSES:
 // Prints formatted parse table.
-func (t LRParseTable) Print(parser *LALRParser) {
+func (t LRParseTable) Print(parser *LALRParserGenerator) {
     fmt.Print("state  |")
-    for _, t := range parser.terminals { fmt.Printf(" %-6s |", t) }
-    fmt.Print(" |")
-    for _, t := range parser.nonTerminals { fmt.Printf(" %-6s |", t) }
-    fmt.Println()
+    for _, t := range parser.terminals { fmt.Printf(" %-6s |", t) }; fmt.Print(" |")
+    for _, t := range parser.nonTerminals { fmt.Printf(" %-6s |", t) }; fmt.Println()
     l := 8 + len(parser.terminals) * 9 + 2 + len(parser.nonTerminals) * 9
     fmt.Println(strings.Repeat("-", l))
     for i := range t.Action {
@@ -431,6 +418,5 @@ func (t LRParseTable) Print(parser *LALRParser) {
             }
         }
         fmt.Println()
-        _ = jump
     }
 }
