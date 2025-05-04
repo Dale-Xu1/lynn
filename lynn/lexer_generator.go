@@ -308,6 +308,19 @@ func epsilonClosure(state *LNFAState, closure map[*LNFAState]struct{}) {
     }
 }
 
+// For a set of NFA states, find accept status with the minimum priority value in the broader NFA.
+func (nfa LNFA) resolveAccept(closure map[*LNFAState]struct{}) (string, bool) {
+    // Handle accepting states, prioritizing tokens listed earlier
+    accept := LNFAAccept { "", -1 }
+    for state := range closure {
+        id, ok := nfa.Accept[state]
+        if ok && (accept.Priority == -1 || id.Priority < accept.Priority) { accept = id }
+    }
+    return accept.Identifier, accept.Priority != -1
+}
+
+// ------------------------------------------------------------------------------------------------------------------------------
+
 // Creates unique identifier string given a closure of NFA states for use in a map.
 func getClosureKey(closure map[*LNFAState]struct{}) string {
     // Sort states by address to ensure identical subsets map to the same key
@@ -323,19 +336,6 @@ func getClosureKey(closure map[*LNFAState]struct{}) string {
     }
     return string(bytes)
 }
-
-// For a set of NFA states, find accept status with the minimum priority value in the broader NFA.
-func (nfa LNFA) resolveAccept(closure map[*LNFAState]struct{}) (string, bool) {
-    // Handle accepting states, prioritizing tokens listed earlier
-    accept := LNFAAccept { "", -1 }
-    for state := range closure {
-        id, ok := nfa.Accept[state]
-        if ok && (accept.Priority == -1 || id.Priority < accept.Priority) { accept = id }
-    }
-    return accept.Identifier, accept.Priority != -1
-}
-
-// ------------------------------------------------------------------------------------------------------------------------------
 
 // Adds epsilon transition to non-deterministic finite automata state.
 func (s *LNFAState) AddEpsilon(states ...*LNFAState) { s.Epsilon = append(s.Epsilon, states...) }

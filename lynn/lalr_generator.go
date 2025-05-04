@@ -1,4 +1,4 @@
-package test
+package lynn
 
 import (
 	"fmt"
@@ -273,6 +273,7 @@ func buildLALRStates(states []*LRState) []*LRState {
             // States cannot be successfully merged if multiple transitions on the same symbol exist that go to different states
             if r := merge[next]; r != nil { next = r }
             if existing := representative.Transitions[symbol]; existing != nil && existing != next {
+                // TODO: Make actually helpful error messages
                 fmt.Printf("Generation error: Goto conflict on symbol %v\n", symbol)
             }
             representative.Transitions[symbol] = next
@@ -380,22 +381,29 @@ func (t Terminal) isSymbol() { }; func (t NonTerminal) isSymbol() { }
 
 // FOR DEBUG PURPOSES:
 // Prints all LR(1) states in the graph and transitions between states.
-func PrintStates(states []*LRState) {
+func PrintStates(states []*LRState, grammar Grammar) {
     ids := make(map[*LRState]int)
     for i, state := range states { ids[state] = i }
     for i, state := range states {
         fmt.Printf("%d ", i)
         for item := range state.Items {
-            fmt.Printf("[%v -> ", item.Production.Left)
+            fmt.Printf("[%s ->", grammar.NonTerminals[item.Production.Left])
             right := item.Production.Right
-            for _, symbol := range right[:item.Dot] { fmt.Print(symbol) }; fmt.Print(".")
-            for _, symbol := range right[item.Dot:] { fmt.Print(symbol) }
+            for _, s := range right[:item.Dot] { fmt.Printf(" %s", symbolString(s, grammar)) }; fmt.Print(" .")
+            for _, s := range right[item.Dot:] { fmt.Printf(" %s", symbolString(s, grammar)) }
             fmt.Printf(", %s] ", item.Lookahead)
         }
         fmt.Println()
-        for symbol, next := range state.Transitions {
-            fmt.Printf("    %v -> %d\n", symbol, ids[next])
+        for s, next := range state.Transitions {
+            fmt.Printf("    %s -> %d\n", symbolString(s, grammar), ids[next])
         }
+    }
+}
+func symbolString(symbol Symbol, grammar Grammar) string {
+    switch t := symbol.(type) {
+    case Terminal:    return string(t)
+    case NonTerminal: return grammar.NonTerminals[t]
+    default: panic("Invalid symbol")
     }
 }
 
@@ -403,8 +411,8 @@ func PrintStates(states []*LRState) {
 // Prints formatted parse table.
 func (t LRParseTable) PrintTable() {
     fmt.Print("state  |")
-    for _, t := range t.Grammar.Terminals { fmt.Printf(" %-6s |", t) }; fmt.Print(" |")
-    for i := range len(t.Grammar.NonTerminals) { fmt.Printf(" %-6s |", t.Grammar.NonTerminals[NonTerminal(i)]) }; fmt.Println()
+    for _, t := range t.Grammar.Terminals { fmt.Printf(" %-6.6s |", t) }; fmt.Print(" |")
+    for i := range len(t.Grammar.NonTerminals) { fmt.Printf(" %-6.6s |", t.Grammar.NonTerminals[NonTerminal(i)]) }; fmt.Println()
     l := 8 + len(t.Grammar.Terminals) * 9 + 2 + len(t.Grammar.NonTerminals) * 9
     fmt.Println(strings.Repeat("-", l))
     for i := range t.Action {
@@ -431,4 +439,42 @@ func (t LRParseTable) PrintTable() {
         }
         fmt.Println()
     }
+}
+
+// ------------------------------------------------------------------------------------------------------------------------------
+
+// TODO: Generate parse tree
+type ShiftReduceParser struct {
+	table LRParseTable
+	stack []int
+}
+
+func NewShiftReduceParser(table LRParseTable) *ShiftReduceParser {
+	return &ShiftReduceParser { table, nil }
+}
+
+func (p *ShiftReduceParser) Parse() {
+	input := []Terminal { "id", "+", "id", "*", "id", EOF_TERMINAL }
+	p.stack = []int { 0 }
+	ip := 0
+	main: for {
+		state := p.stack[len(p.stack) - 1]
+		action, ok := p.table.Action[state][input[ip]]
+		if !ok { panic("Unexpected symbol") }
+		switch action.Type {
+		case SHIFT:
+			p.stack = append(p.stack, action.Value)
+			ip++
+			fmt.Printf("s%d\n", action.Value)
+		case REDUCE:
+			production := p.table.Grammar.Productions[action.Value]
+			l := len(p.stack) - len(production.Right)
+			p.stack = p.stack[:l]
+			p.stack = append(p.stack, p.table.Goto[p.stack[l - 1]][production.Left])
+			fmt.Printf("r%d\n", action.Value)
+		case ACCEPT:
+			fmt.Println("acc")
+			break main
+		}
+	}
 }
