@@ -18,6 +18,8 @@ func main() {
     // lynn.CompileLexer("lynn", ast, ranges, dfa)
 
     generator := test.NewLALRParserGenerator()
-    parser := generator.Generate()
+    table := generator.Generate(test.NewTestGrammar())
+    table.PrintTable()
+    parser := test.NewShiftReduceParser(table)
     parser.Parse()
 }

@@ -1,4 +1,4 @@
-grammar : rule* EOF ;
+grammar : rule* ;
 rule
     : IDENTIFIER ":" expr ";"
     | TOKEN IDENTIFIER ":" expr ("->" SKIP)? ";"

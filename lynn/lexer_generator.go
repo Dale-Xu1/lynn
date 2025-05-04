@@ -37,11 +37,10 @@ type LexerGenerator struct {
     accept    map[*LDFAState]string
 }
 
-// Returns a new lexer generator struct.
-func NewLexerGenerator() *LexerGenerator { return &LexerGenerator { } }
-
 // ------------------------------------------------------------------------------------------------------------------------------
 
+// Returns a new lexer generator struct.
+func NewLexerGenerator() *LexerGenerator { return &LexerGenerator { } }
 // Converts regular expressions defined in grammar into a non-deterministic finite automata.
 func (g *LexerGenerator) GenerateNFA(grammar *GrammarNode) (LNFA, []Range) {
     g.fragments, g.ranges = make(map[string]LNFAFragment), make(map[Range]struct{})
@@ -94,7 +93,7 @@ func injectEOF(grammar *GrammarNode) {
     }
     // Provide default EOF token if not defined
     node := &TokenNode { &IdentifierNode { "EOF", Location { } }, &StringNode { []rune { 0 }, Location { } }, false }
-    grammar.Tokens = append([]*TokenNode { node }, grammar.Tokens...)
+    grammar.Tokens = append(grammar.Tokens, node)
 }
 
 // Converts a given expression node from the AST to an NFA fragment.

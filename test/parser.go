@@ -2,18 +2,18 @@ package test
 
 import "fmt"
 
+// TODO: Generate parse tree
 type ShiftReduceParser struct {
-    productions []Production
-	table       LRParseTable
-	stack       []int
+	table LRParseTable
+	stack []int
 }
 
-func NewShiftReduceParser(productions []Production, table LRParseTable) *ShiftReduceParser {
-	return &ShiftReduceParser { productions, table, nil }
+func NewShiftReduceParser(table LRParseTable) *ShiftReduceParser {
+	return &ShiftReduceParser { table, nil }
 }
 
 func (p *ShiftReduceParser) Parse() {
-	input := []Terminal { 'x', '+', 'x', '*', 'x', END }
+	input := []Terminal { "id", "+", "id", "*", "id", EOF_TERMINAL }
 	p.stack = []int { 0 }
 	ip := 0
 	main: for {
@@ -26,7 +26,7 @@ func (p *ShiftReduceParser) Parse() {
 			ip++
 			fmt.Printf("s%d\n", action.Value)
 		case REDUCE:
-			production := p.productions[action.Value]
+			production := p.table.Grammar.Productions[action.Value]
 			l := len(p.stack) - len(production.Right)
 			p.stack = p.stack[:l]
 			p.stack = append(p.stack, p.table.Goto[p.stack[l - 1]][production.Left])
