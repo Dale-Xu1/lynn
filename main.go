@@ -20,7 +20,6 @@ func main() {
     generator := lynn.NewLALRParserGenerator()
     table := generator.Generate(lynn.NewTestGrammar())
     table.PrintTable()
-
     parser := lynn.NewShiftReduceParser(table)
     parser.Parse()
 }

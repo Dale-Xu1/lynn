@@ -89,10 +89,10 @@ func (g *LexerGenerator) GenerateNFA(grammar *GrammarNode) (LNFA, []Range) {
 func injectEOF(grammar *GrammarNode) {
     // Test if EOF token is already defined
     for _, token := range grammar.Tokens {
-        if token.Identifier.Name == "EOF" { return }
+        if token.Identifier.Name == EOF_TERMINAL { return }
     }
     // Provide default EOF token if not defined
-    node := &TokenNode { &IdentifierNode { "EOF", Location { } }, &StringNode { []rune { 0 }, Location { } }, false }
+    node := &TokenNode { &IdentifierNode { EOF_TERMINAL, Location { } }, &StringNode { []rune { 0 }, Location { } }, false }
     grammar.Tokens = append(grammar.Tokens, node)
 }
 
