@@ -7,24 +7,6 @@ import (
 	"unsafe"
 )
 
-// Symbol interface. Can either be a Terminal or NonTerminal struct.
-type Symbol interface { isSymbol() }
-// Terminal type. Represented by string identifier.
-type Terminal string
-const (EPSILON Terminal = "ε"; EOF_TERMINAL = "EOF")
-// Non-terminal type. Represented by integer index.
-type NonTerminal int
-
-// Grammar struct. Tracks all terminals and non-terminals, the start non-terminal, and all production rules.
-type Grammar struct {
-    Terminals    []Terminal
-    NonTerminals map[NonTerminal]string
-    Start        NonTerminal
-    Productions  []Production
-}
-// Production struct. Expresses a sequence of symbols that a given non-terminal may be expanded to in a grammar.
-type Production struct { Left  NonTerminal; Right []Symbol }
-
 // LR(0) item struct. Specifies how much of a production's sequence of symbols have been read.
 type LR0Item struct { Production *Production; Dot int }
 // LR(1) item struct. Specifies how much of a production's sequence of symbols have been read and a lookahead terminal.
@@ -37,7 +19,7 @@ type LRState struct {
 
 // LR(1) parse table. Represents action table and goto table.
 type LRParseTable struct {
-    Grammar Grammar
+    Grammar *Grammar
     Action  []map[Terminal]ActionEntry
     Goto    []map[NonTerminal]int
 }
@@ -52,33 +34,9 @@ type ActionEntry struct {
 
 // LALR parser generator struct. Converts a given grammar to an LR(1) parse table.
 type LALRParserGenerator struct {
-    grammar   Grammar
+    grammar   *Grammar
     augmented *Production
     first     map[Symbol]map[Terminal]struct{}
-}
-
-func NewTestGrammar() Grammar {
-    return Grammar {
-        []Terminal { "a", "b", "EOF" },
-        map[NonTerminal]string { 0: "A", 1: "B" },
-        0,
-        []Production {
-            { 0, []Symbol { NonTerminal(1), Terminal("a"), NonTerminal(1) } },
-            { 1, []Symbol { Terminal("b") } },
-            { 1, []Symbol { } },
-        },
-        // []Terminal { "+", "*", "(", ")", "id", "EOF" },
-        // map[NonTerminal]string { 0: "E", 1: "T", 2: "F" },
-        // 0,
-        // []Production {
-        //     { 0, []Symbol { NonTerminal(0), Terminal("+"), NonTerminal(1) } },
-        //     { 0, []Symbol { NonTerminal(1) } },
-        //     { 1, []Symbol { NonTerminal(1), Terminal("*"), NonTerminal(2) } },
-        //     { 1, []Symbol { NonTerminal(2) } },
-        //     { 2, []Symbol { Terminal("("), NonTerminal(0), Terminal(")") } },
-        //     { 2, []Symbol { Terminal("id") } },
-        // },
-    }
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------
@@ -86,69 +44,60 @@ func NewTestGrammar() Grammar {
 // Returns a new LALR parser generator struct.
 func NewLALRParserGenerator() *LALRParserGenerator { return &LALRParserGenerator { } }
 // Converts a grammar definition to an LR(1) parse table.
-func (p *LALRParserGenerator) Generate(grammar Grammar) LRParseTable {
+func (g *LALRParserGenerator) Generate(grammar *Grammar) LRParseTable {
     // Initialize generator with augmented grammar
-    p.grammar = grammar
-    p.augmented = p.grammar.Augment()
+    g.grammar = grammar
+    g.augmented = grammar.Augment()
     // Find first set and construct LALR(1) states from LR(1) states
-    p.first = make(map[Symbol]map[Terminal]struct{})
-    p.findFirst()
-    states := buildLALRStates(p.buildLR1States())
-    PrintStates(states, p.grammar)
+    g.first = make(map[Symbol]map[Terminal]struct{})
+    g.findFirst()
+    states := buildLALRStates(g.buildLR1States())
     // Generate parse table and pass to shift-reduce parser
-    table := p.buildParseTable(states)
+    table := g.buildParseTable(states)
     return table
 }
 
-// Augment grammar with new start state. Returns augmented start state.
-func (g *Grammar) Augment() *Production {
-    t := NonTerminal(len(g.NonTerminals))
-    g.NonTerminals[t] = "S'"
-    g.Productions = append(g.Productions, Production { t, []Symbol { g.Start } })
-    return &g.Productions[len(g.Productions) - 1]
-}
-
 // Computes the FIRST sets of all symbols in the grammar provided by the parser.
-func (p *LALRParserGenerator) findFirst() {
+func (g *LALRParserGenerator) findFirst() {
     // Initialize FIRST sets for all terminals and non-terminals
     // FIRST set of a terminal contains only itself, and FIRST sets of non-terminals are initialized empty
-    for _, t := range p.grammar.Terminals {
-        if t != EOF_TERMINAL { p.first[t] = map[Terminal]struct{} { t: {} } }
+    for _, t := range g.grammar.Terminals {
+        if t != EOF_TERMINAL { g.first[t] = map[Terminal]struct{} { t: {} } }
     }
-    for t := range p.grammar.NonTerminals { p.first[t] = make(map[Terminal]struct{}) }
+    for t := range g.grammar.NonTerminals { g.first[t] = make(map[Terminal]struct{}) }
     // Iterative implementation, repeat procedure until no changes are made
     for changed := true; changed; {
         changed = false
-        for _, production := range p.grammar.Productions {
-            changed = p.findRuleFirst(production.Left, production.Right) || changed
+        for _, production := range g.grammar.Productions {
+            changed = g.findRuleFirst(production.Left, production.Right) || changed
         }
     }
 }
 
-func (p *LALRParserGenerator) findRuleFirst(left NonTerminal, rule []Symbol) bool {
+func (g *LALRParserGenerator) findRuleFirst(left NonTerminal, rule []Symbol) bool {
     // The FIRST set of a non-terminal is found by going through its productions and taking the union of the FIRST sets
     // of subsequent symbols until a non-nullable symbol is found (FIRST set does not contain epsilon)
     changed := false
     for _, s := range rule {
-        for f := range p.first[s] {
+        for f := range g.first[s] {
             // Add all elements in FIRST set of symbol to FIRST set of production LHS non-terminal
-            if _, ok := p.first[left][f]; !ok { p.first[left][f] = struct{}{}; changed = true }
+            if _, ok := g.first[left][f]; !ok { g.first[left][f] = struct{}{}; changed = true }
         }
         // All elements in FIRST set have been found if symbol is non-nullable
-        if _, ok := p.first[s][EPSILON]; !ok { return changed }
+        if _, ok := g.first[s][EPSILON]; !ok { return changed }
     }
     // If all symbols in the production are nullable, the LHS non-terminal is also nullable
-    if _, ok := p.first[left][EPSILON]; !ok { p.first[left][EPSILON] = struct{}{}; changed = true }
+    if _, ok := g.first[left][EPSILON]; !ok { g.first[left][EPSILON] = struct{}{}; changed = true }
     return changed
 }
 
-func (p *LALRParserGenerator) findSequenceFirst(sequence []Symbol) map[Terminal]struct{} {
+func (g *LALRParserGenerator) findSequenceFirst(sequence []Symbol) map[Terminal]struct{} {
     first := make(map[Terminal]struct{})
     for _, s := range sequence {
         // Add all elements in FIRST set of symbol to set
-        for f := range p.first[s] { first[f] = struct{}{} }
+        for f := range g.first[s] { first[f] = struct{}{} }
         // All elements in FIRST set have been found if symbol is non-nullable
-        if _, ok := p.first[s][EPSILON]; !ok { return first }
+        if _, ok := g.first[s][EPSILON]; !ok { return first }
     }
     // If all symbols in the production are nullable, the sequence is also nullable
     first[EPSILON] = struct{}{}
@@ -156,7 +105,7 @@ func (p *LALRParserGenerator) findSequenceFirst(sequence []Symbol) map[Terminal]
 }
 
 // Computes the closure set of a set of LR(1) items.
-func (p *LALRParserGenerator) findClosure(items map[LR1Item]struct{}) map[LR1Item]struct{} {
+func (g *LALRParserGenerator) findClosure(items map[LR1Item]struct{}) map[LR1Item]struct{} {
     // Transfer items in set to closure set and work list
     closure := make(map[LR1Item]struct{}, len(items))
     work := make([]LR1Item, 0, len(items))
@@ -167,14 +116,13 @@ func (p *LALRParserGenerator) findClosure(items map[LR1Item]struct{}) map[LR1Ite
         // Ensure that LR(1) item still has symbols to shift and that the current symbol is a non-terminal
         right := item.Production.Right
         if item.Dot >= len(right) { continue }
-        t, ok := right[item.Dot].(NonTerminal)
-        if !ok { continue }
+        t, ok := right[item.Dot].(NonTerminal); if !ok { continue }
         // Find first first set of beta sequence, if sequence is nullable, add lookahead to set
-        first := p.findSequenceFirst(right[item.Dot + 1:])
+        first := g.findSequenceFirst(right[item.Dot + 1:])
         if _, ok := first[EPSILON]; ok { delete(first, EPSILON); first[item.Lookahead] = struct{}{} }
         // Look for all productions with the given non terminal as its LHS
-        for i := range p.grammar.Productions {
-            production := &p.grammar.Productions[i]
+        for i := range g.grammar.Productions {
+            production := &g.grammar.Productions[i]
             if production.Left != t { continue }
             // Add productions to the work list, starting dot at the start and create copies for each terminal in the first set
             for lookahead := range first {
@@ -186,8 +134,8 @@ func (p *LALRParserGenerator) findClosure(items map[LR1Item]struct{}) map[LR1Ite
     return closure
 }
 
-// Computes the goto set of a given item and symbol to transition on.
-func (p *LALRParserGenerator) findGoto(items map[LR1Item]struct{}, symbol Symbol) map[LR1Item]struct{} {
+// Computes the GOTO set of a given item and symbol to transition on.
+func (g *LALRParserGenerator) findGoto(items map[LR1Item]struct{}, symbol Symbol) map[LR1Item]struct{} {
     set := make(map[LR1Item]struct{})
     for item := range items {
         // Find LR(1) items in set where the next symbol matches the one passed to the function
@@ -198,14 +146,14 @@ func (p *LALRParserGenerator) findGoto(items map[LR1Item]struct{}, symbol Symbol
         }
     }
     if len(set) == 0 { return set }
-    return p.findClosure(set)
+    return g.findClosure(set)
 }
 
 // Constructs the canonical collection of LR(1) item sets.
 // The first state in the list is the start state (LR(1) item set that contains augmented start production).
-func (p *LALRParserGenerator) buildLR1States() []*LRState {
+func (g *LALRParserGenerator) buildLR1States() []*LRState {
     // Find closure of initial item
-    closure := p.findClosure(map[LR1Item]struct{} { { p.augmented, 0, EOF_TERMINAL }: {} })
+    closure := g.findClosure(map[LR1Item]struct{} { { g.augmented, 0, EOF_TERMINAL }: {} })
     // Initialize work list with state associated with set
     start := &LRState { closure, make(map[Symbol]*LRState) }
     states := map[string]*LRState { getLR1ItemStateKey(start.Items): start } // Register state key to state object
@@ -223,9 +171,9 @@ func (p *LALRParserGenerator) buildLR1States() []*LRState {
                 transitions[symbol] = struct{}{}
             }
         }
-        // For each outgoing transition, compute the next state determined by the goto set
+        // For each outgoing transition, compute the next state determined by the GOTO set
         for symbol := range transitions {
-            set := p.findGoto(state.Items, symbol); if len(set) == 0 { continue }
+            set := g.findGoto(state.Items, symbol); if len(set) == 0 { continue }
             // Determine if the state has already been visited
             key := getLR1ItemStateKey(set); next := states[key]
             if next == nil {
@@ -283,15 +231,15 @@ func buildLALRStates(states []*LRState) []*LRState {
 }
 
 // Construct LALR(1) parse table.
-func (p *LALRParserGenerator) buildParseTable(states []*LRState) LRParseTable {
+func (g *LALRParserGenerator) buildParseTable(states []*LRState) LRParseTable {
     // Create map from state and production structs to their respective integer identifiers
     stateId := make(map[*LRState]int)
     productionId := make(map[*Production]int)
     for i, state := range states { stateId[state] = i }
-    for i := range p.grammar.Productions { productionId[&p.grammar.Productions[i]] = i }
+    for i := range g.grammar.Productions { productionId[&g.grammar.Productions[i]] = i }
     // Initialize action and goto tables in parse table
     table := LRParseTable {
-        p.grammar,
+        g.grammar,
         make([]map[Terminal]ActionEntry, len(states)),
         make([]map[NonTerminal]int, len(states)),
     }
@@ -310,13 +258,13 @@ func (p *LALRParserGenerator) buildParseTable(states []*LRState) LRParseTable {
         for item := range state.Items {
             // Identify all LR(1) items of the state where all symbols have been consumed
             if item.Dot < len(item.Production.Right) { continue }
-            if item.Production == p.augmented {
+            if item.Production == g.augmented {
                 // Register an accept action if the production being reduced is the augmented start non-terminal
                 action[EOF_TERMINAL] = ActionEntry{ Type: ACCEPT }
             } else {
                 id := productionId[item.Production]
                 if existing, ok := action[item.Lookahead]; ok {
-                    p1 := p.grammar.Productions[id].String(p.grammar)
+                    p1 := g.grammar.Productions[id].String(g.grammar)
                     switch existing.Type {
                     case SHIFT:
                         // Reduce action is ignored, preferring shift action if it already exists
@@ -324,7 +272,7 @@ func (p *LALRParserGenerator) buildParseTable(states []*LRState) LRParseTable {
                         continue
                     case REDUCE:
                         // Resolve reduce/reduce conflict by choosing reduce action with lower production identifier
-                        p2 := p.grammar.Productions[existing.Value].String(p.grammar)
+                        p2 := g.grammar.Productions[existing.Value].String(g.grammar)
                         fmt.Printf("Generation error: Reduce/reduce conflict on token %s between productions %s and %s\n",
                             item.Lookahead, p1, p2)
                         if id > existing.Value { continue }
@@ -378,39 +326,23 @@ func getLR1ItemStateKey(items map[LR1Item]struct{}) string {
     return string(bytes)
 }
 
-func (t Terminal) isSymbol() { }; func (t NonTerminal) isSymbol() { }
-func symbolToString(symbol Symbol, grammar Grammar) string {
-    switch t := symbol.(type) {
-    case Terminal:    return string(t)
-    case NonTerminal: return grammar.NonTerminals[t]
-    default: panic("Invalid symbol")
-    }
-}
-
-func (p Production) String(grammar Grammar) string {
-    var builder strings.Builder
-    builder.WriteString(fmt.Sprintf("%s ->", grammar.NonTerminals[p.Left]))
-    for _, s := range p.Right { builder.WriteString(fmt.Sprintf(" %s", symbolToString(s, grammar))) }
-    return builder.String()
-}
-
 // FOR DEBUG PURPOSES:
 // Prints all LR(1) states in the graph and transitions between states.
-func PrintStates(states []*LRState, grammar Grammar) {
+func PrintStates(states []*LRState, grammar *Grammar) {
     ids := make(map[*LRState]int)
     for i, state := range states { ids[state] = i }
     for i, state := range states {
         fmt.Printf("%d ", i)
         for item := range state.Items {
-            fmt.Printf("[%s ->", grammar.NonTerminals[item.Production.Left])
             right := item.Production.Right
-            for _, s := range right[:item.Dot] { fmt.Printf(" %s", symbolToString(s, grammar)) }; fmt.Print(" .")
-            for _, s := range right[item.Dot:] { fmt.Printf(" %s", symbolToString(s, grammar)) }
-            fmt.Printf(", %s] ", item.Lookahead)
+            str := make([]string, len(right))
+            for i, s := range right { str[i] = s.String(grammar) }
+            fmt.Printf("[%s -> %s.%s, %s] ", item.Production.Left.String(grammar),
+                strings.Join(str[:item.Dot], " "), strings.Join(str[item.Dot:], " "), item.Lookahead)
         }
         fmt.Println()
         for s, next := range state.Transitions {
-            fmt.Printf("    %s -> %d\n", symbolToString(s, grammar), ids[next])
+            fmt.Printf("    %s -> %d\n", s.String(grammar), ids[next])
         }
     }
 }
@@ -420,7 +352,7 @@ func PrintStates(states []*LRState, grammar Grammar) {
 func (t LRParseTable) PrintTable() {
     fmt.Print("state  |")
     for _, t := range t.Grammar.Terminals { fmt.Printf(" %-6.6s |", t) }; fmt.Print(" |")
-    for i := range len(t.Grammar.NonTerminals) { fmt.Printf(" %-6.6s |", t.Grammar.NonTerminals[NonTerminal(i)]) }; fmt.Println()
+    for i := range len(t.Grammar.NonTerminals) { fmt.Printf(" %-6.6s |", NonTerminal(i).String(t.Grammar)) }; fmt.Println()
     l := 8 + len(t.Grammar.Terminals) * 9 + 2 + len(t.Grammar.NonTerminals) * 9
     fmt.Println(strings.Repeat("-", l))
     for i := range t.Action {
@@ -450,42 +382,55 @@ func (t LRParseTable) PrintTable() {
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------
+// TODO: Compile to generated parser program
+// TODO: Print parse trees
 
-// TODO: Generate parse tree
 type ShiftReduceParser struct {
 	table LRParseTable
-	stack []int
 }
 
-func NewShiftReduceParser(table LRParseTable) *ShiftReduceParser {
-	return &ShiftReduceParser { table, nil }
+type StackState struct {
+    State int
+    Node  *ParseTreeNode
 }
 
-func (p *ShiftReduceParser) Parse() {
-	input := []Terminal { "b", "a", EOF_TERMINAL }
-	p.stack = []int { 0 }
+type ParseTreeNode struct {
+    Symbol   Symbol
+    Children []*ParseTreeNode
+}
+
+func NewShiftReduceParser(table LRParseTable) *ShiftReduceParser { return &ShiftReduceParser { table } }
+func (p *ShiftReduceParser) Parse() *ParseTreeNode {
+	input := []Terminal { "id", "+", "id", "*", "id", EOF_TERMINAL }
 	ip := 0
-	main: for {
-		state := p.stack[len(p.stack) - 1]
-		action, ok := p.table.Action[state][input[ip]]
+	stack := []StackState { { 0, nil } }
+	for {
+		state, token := stack[len(stack) - 1].State, input[ip]
+		action, ok := p.table.Action[state][token]
 		if !ok {
-            fmt.Printf("Syntax error: Unexpected token %s\n", input[ip])
-            break
+            fmt.Printf("Syntax error: Unexpected token %s\n", token)
+            return nil
         }
 		switch action.Type {
 		case SHIFT:
-			p.stack = append(p.stack, action.Value)
+            // Create leaf node for terminal
+            node := &ParseTreeNode { token, nil }
+            // Add new state to the stack along with leaf node
+			stack = append(stack, StackState { action.Value, node })
 			ip++
-			fmt.Printf("s%d\n", action.Value)
 		case REDUCE:
+            // Find production to reduce by
 			production := p.table.Grammar.Productions[action.Value]
-			l := len(p.stack) - len(production.Right)
-			p.stack = p.stack[:l]
-			p.stack = append(p.stack, p.table.Goto[p.stack[l - 1]][production.Left])
-			fmt.Printf("r%d\n", action.Value)
-		case ACCEPT:
-			fmt.Println("acc")
-			break main
+            r := len(production.Right); l := len(stack) - r
+            // Collect child nodes from current states on the stack and create node for reduction
+            children := make([]*ParseTreeNode, r)
+            for i, s := range stack[l:] { children[i] = s.Node }
+            node := &ParseTreeNode { production.Left, children }
+            // Pop stack and find next state based on goto table
+			stack = stack[:l]; state := stack[l - 1].State
+            next := p.table.Goto[state][production.Left]
+			stack = append(stack, StackState { next, node })
+		case ACCEPT: return stack[1].Node
 		}
 	}
 }
