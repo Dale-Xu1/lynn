@@ -309,11 +309,11 @@ func epsilonClosure(state *LNFAState, closure map[*LNFAState]struct{}) {
 }
 
 // For a set of NFA states, find accept status with the minimum priority value in the broader NFA.
-func (nfa LNFA) resolveAccept(closure map[*LNFAState]struct{}) (string, bool) {
+func (n LNFA) resolveAccept(closure map[*LNFAState]struct{}) (string, bool) {
     // Handle accepting states, prioritizing tokens listed earlier
     accept := LNFAAccept { "", -1 }
     for state := range closure {
-        id, ok := nfa.Accept[state]
+        id, ok := n.Accept[state]
         if ok && (accept.Priority == -1 || id.Priority < accept.Priority) { accept = id }
     }
     return accept.Identifier, accept.Priority != -1

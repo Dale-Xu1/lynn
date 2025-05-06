@@ -430,7 +430,9 @@ func (p *ShiftReduceParser) Parse() *ParseTreeNode {
 			stack = stack[:l]; state := stack[l - 1].State
             next := p.table.Goto[state][production.Left]
 			stack = append(stack, StackState { next, node })
-		case ACCEPT: return stack[1].Node
+		case ACCEPT:
+            fmt.Println("accept")
+            return stack[1].Node
 		}
 	}
 }

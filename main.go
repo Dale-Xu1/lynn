@@ -21,11 +21,11 @@ func main() {
 
     grammar := lynn.NewTestGrammar()
     grammar.RemoveAmbiguities()
+    generator := lynn.NewLALRParserGenerator()
+    table := generator.Generate(grammar)
     grammar.PrintGrammar()
+    table.PrintTable()
 
-    // generator := lynn.NewLALRParserGenerator()
-    // table := generator.Generate(grammar)
-    // table.PrintTable()
-    // parser := lynn.NewShiftReduceParser(table)
-    // parser.Parse()
+    parser := lynn.NewShiftReduceParser(table)
+    parser.Parse()
 }
