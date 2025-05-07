@@ -23,8 +23,15 @@ type Grammar struct {
 // Production struct. Expresses a sequence of symbols that a given non-terminal may be expanded to in a grammar.
 type Production struct { Left NonTerminal; Right []Symbol }
 
-// TODO: Conversion from AST to grammar
-func NewTestGrammar() *Grammar {
+// Lexer generator struct. Converts EBNF rule definitions to context-free grammar (CFG) production rules.
+type GrammarGenerator struct {
+}
+
+// Returns a grammar generator struct.
+func NewGrammarGenerator() *GrammarGenerator { return &GrammarGenerator { } }
+// Converts EBNF rules defined in AST into CFG production rules.
+func (g *GrammarGenerator) GenerateCFG(grammar *GrammarNode) *Grammar {
+    // TODO: Conversion from AST to grammar
     return &Grammar {
         []Terminal { "+", "*", "(", ")", "id", "EOF" },
         map[NonTerminal]string { 0: "E" },
@@ -81,6 +88,8 @@ func (g *Grammar) RemoveAmbiguities() {
     g.Productions = modified
 }
 
+// TODO: When generating parse tree, remove auxiliary non-terminals
+
 // Augment grammar with new start state. Returns production for augmented start state.
 func (g *Grammar) Augment() *Production {
     t := NonTerminal(len(g.NonTerminals))
@@ -103,4 +112,60 @@ func (p Production)  String(grammar *Grammar) string {
 func (g *Grammar) PrintGrammar() {
     fmt.Printf("start: %s\n", g.Productions[g.Start].Left.String(g))
     for _, production := range g.Productions { fmt.Println(production.String(g)) }
+}
+
+// ------------------------------------------------------------------------------------------------------------------------------
+// TODO: Compile to generated parser program
+// TODO: Print parse trees
+
+type ShiftReduceParser struct {
+	table LRParseTable
+}
+
+type StackState struct {
+    State int
+    Node  *ParseTreeNode
+}
+
+type ParseTreeNode struct {
+    Symbol   Symbol
+    Children []*ParseTreeNode
+}
+
+func NewShiftReduceParser(table LRParseTable) *ShiftReduceParser { return &ShiftReduceParser { table } }
+func (p *ShiftReduceParser) Parse() *ParseTreeNode {
+	input := []Terminal { "id", "+", "id", "*", "id", EOF_TERMINAL }
+	ip := 0
+	stack := []StackState { { 0, nil } }
+	for {
+		state, token := stack[len(stack) - 1].State, input[ip]
+		action, ok := p.table.Action[state][token]
+		if !ok {
+            fmt.Printf("Syntax error: Unexpected token %s\n", token)
+            return nil
+        }
+		switch action.Type {
+		case SHIFT:
+            // Create leaf node for terminal
+            node := &ParseTreeNode { token, nil }
+            // Add new state to the stack along with leaf node
+			stack = append(stack, StackState { action.Value, node })
+			ip++
+		case REDUCE:
+            // Find production to reduce by
+			production := p.table.Grammar.Productions[action.Value]
+            r := len(production.Right); l := len(stack) - r
+            // Collect child nodes from current states on the stack and create node for reduction
+            children := make([]*ParseTreeNode, r)
+            for i, s := range stack[l:] { children[i] = s.Node }
+            node := &ParseTreeNode { production.Left, children }
+            // Pop stack and find next state based on goto table
+			stack = stack[:l]; state := stack[l - 1].State
+            next := p.table.Goto[state][production.Left]
+			stack = append(stack, StackState { next, node })
+		case ACCEPT:
+            fmt.Println("accept")
+            return stack[1].Node
+		}
+	}
 }

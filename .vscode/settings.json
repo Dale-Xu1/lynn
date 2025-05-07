@@ -1,10 +1,11 @@
 {
     "cSpell.words": [
+        "EBNF",
         "Hopcroft",
-        "Sprintf",
-        "unreads",
-        "LNFA",
+        "LALR",
         "LDFA",
-        "LALR"
+        "LNFA",
+        "Sprintf",
+        "unreads"
     ]
 }
