@@ -1,8 +1,8 @@
-grammar : rule* ;
+grammar : (rule ";")* ;
 rule
-    : IDENTIFIER ":" expr ";"
-    | TOKEN IDENTIFIER ":" expr ("->" SKIP)? ";"
-    | FRAGMENT IDENTIFIER ":" expr ";"
+    : IDENTIFIER ":" expr
+    | TOKEN IDENTIFIER ":" expr ("->" SKIP)?
+    | FRAGMENT IDENTIFIER ":" expr
     ;
 
 expr

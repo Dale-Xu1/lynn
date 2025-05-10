@@ -62,7 +62,7 @@ func (g *GrammarGenerator) GenerateCFG(grammar *GrammarNode) *Grammar {
         terminals = append(terminals, EOF_TERMINAL)
     }
     // Create list of unique non-terminals and assign index identifiers to each
-    g.nonTerminals = make(map[string]NonTerminal,          len(grammar.Rules))
+    g.nonTerminals = make(map[string]NonTerminal,           len(grammar.Rules))
     g.parentData   = make(map[NonTerminal]*nonTerminalData, len(grammar.Rules))
     for _, rule := range grammar.Rules {
         id := rule.Identifier
@@ -123,20 +123,28 @@ func (g *GrammarGenerator) expressionCFG(parent NonTerminal, left NonTerminal, e
 func (g *GrammarGenerator) symbolCFG(parent NonTerminal, expression AST) Symbol {
     switch node := expression.(type) {
     case *OptionNode:
+        // Create new non-terminal with possible productions including an epsilon production
         t := g.deriveNonTerminal(parent)
         g.expressionCFG(parent, t, node.Expression)
         g.productions = append(g.productions, Production { t, []Symbol { } })
         return t
     case *RepeatNode:
-        // TODO: Proper implementations for RepeatNode and RepeatOneNode
-        t := g.deriveNonTerminal(parent)
-        g.expressionCFG(parent, t, node.Expression)
-        return t
+        // Two new non-terminals are created for repetitions:
+        // E_0 -> E_0 E_1 (E_1 can be repeated 0 or more times)
+        // E_0 -> epsilon
+        t1, t2 := g.deriveNonTerminal(parent), g.deriveNonTerminal(parent)
+        g.productions = append(g.productions, Production { t1, []Symbol { t1, t2 } }, Production { t1, []Symbol { } })
+        g.expressionCFG(parent, t2, node.Expression)
+        return t1
     case *RepeatOneNode:
-        t := g.deriveNonTerminal(parent)
-        g.expressionCFG(parent, t, node.Expression)
-        return t
+        // E_0 -> E_0 E_1
+        // E_0 -> E_1 (E_1 can be repeated 1 or more times)
+        t1, t2 := g.deriveNonTerminal(parent), g.deriveNonTerminal(parent)
+        g.productions = append(g.productions, Production { t1, []Symbol { t1, t2 } }, Production { t1, []Symbol { t2 } })
+        g.expressionCFG(parent, t2, node.Expression)
+        return t1
     case *UnionNode:
+        // Separate inner union to new non-terminal
         t := g.deriveNonTerminal(parent)
         g.expressionCFG(parent, t, node)
         return t
@@ -202,6 +210,7 @@ func (g *Grammar) RemoveAmbiguities() {
             copy(symbols[1:], p.Right[1:len(p.Right) - 1])
             symbols[0], symbols[len(symbols) - 1] = left, next
             // TODO: Allow grammar to specify associativity
+            // TODO: Look more into automatic disambiguation (or manual markers)
             // symbols[0], symbols[len(symbols) - 1] = next, left
             // Add modified productions to new list
             modified = append(modified, Production { left, symbols })
@@ -210,7 +219,8 @@ func (g *Grammar) RemoveAmbiguities() {
         }
         // For remaining productions, replace left non-terminal with new non-terminal of highest precedence
         for _, p := range r {
-            if len(p.Right) >= 1 {
+            if len(p.Right) > 0 {
+                // Replace left and right recursion with high precedence non-terminal
                 if p.Right[0]                == t { p.Right[0]                = left }
                 if p.Right[len(p.Right) - 1] == t { p.Right[len(p.Right) - 1] = left }
             }
@@ -247,14 +257,18 @@ func (t NonTerminal) String(grammar *Grammar) string { return grammar.NonTermina
 func (p Production)  String(grammar *Grammar) string {
     var builder strings.Builder
     builder.WriteString(fmt.Sprintf("%s ->", p.Left.String(grammar)))
-    for _, s := range p.Right { builder.WriteString(fmt.Sprintf(" %s", s.String(grammar))) }
+    if len(p.Right) > 0 {
+        for _, s := range p.Right { builder.WriteString(fmt.Sprintf(" %s", s.String(grammar))) }
+    } else {
+        builder.WriteString(" ε")
+    }
     return builder.String()
 }
 
 // FOR DEBUG PURPOSES:
 // Prints all production rules of the grammar.
 func (g *Grammar) PrintGrammar() {
-    fmt.Printf("start: %s\n", g.Productions[g.Start].Left.String(g))
+    fmt.Printf("start: %s\n", g.Start.String(g))
     for _, production := range g.Productions { fmt.Println(production.String(g)) }
 }
 
