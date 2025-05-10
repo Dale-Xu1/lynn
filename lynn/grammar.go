@@ -25,23 +25,117 @@ type Production struct { Left NonTerminal; Right []Symbol }
 
 // Lexer generator struct. Converts EBNF rule definitions to context-free grammar (CFG) production rules.
 type GrammarGenerator struct {
+    terminals    map[string]struct{}
+    nonTerminals map[string]NonTerminal
+    strings      map[string]Terminal
+    productions  []Production
 }
 
 // Returns a grammar generator struct.
 func NewGrammarGenerator() *GrammarGenerator { return &GrammarGenerator { } }
 // Converts EBNF rules defined in AST into CFG production rules.
 func (g *GrammarGenerator) GenerateCFG(grammar *GrammarNode) *Grammar {
-    // TODO: Conversion from AST to grammar
-    return &Grammar {
-        []Terminal { "+", "*", "(", ")", "id", "EOF" },
-        map[NonTerminal]string { 0: "E" },
-        0,
-        []Production {
-            { 0, []Symbol { NonTerminal(0), Terminal("+"), NonTerminal(0) } },
-            { 0, []Symbol { NonTerminal(0), Terminal("*"), NonTerminal(0) } },
-            { 0, []Symbol { Terminal("("), NonTerminal(0), Terminal(")") } },
-            { 0, []Symbol { Terminal("id") } },
-        },
+    // Generate set of valid terminals and create map from simple string tokens to their corresponding terminal
+    g.terminals, g.strings = make(map[string]struct{}, len(grammar.Tokens)), make(map[string]Terminal, len(grammar.Tokens))
+    terminals := make([]Terminal, 0, len(grammar.Tokens))
+    for _, token := range grammar.Tokens {
+        id := token.Identifier
+        if _, ok := g.terminals[id.Name]; ok {
+            fmt.Printf("Generation error: Token \"%s\" is already defined - %d:%d\n", id.Name, id.Location.Line, id.Location.Col)
+            continue
+        }
+        g.terminals[id.Name] = struct{}{}
+        t := Terminal(id.Name); terminals = append(terminals, t)
+        // If a token's expression is only a string, the string itself is allowed to be used in rule expressions
+        if str, ok := token.Expression.(*StringNode); ok {
+            g.strings[string(str.Chars)] = t
+        }
+    }
+    // If EOF is not defined, add to terminal list
+    if _, ok := g.terminals[EOF_TERMINAL]; !ok {
+        g.terminals[EOF_TERMINAL] = struct{}{}
+        terminals = append(terminals, EOF_TERMINAL)
+    }
+    // Create list of unique non-terminals and assign index identifiers to each
+    g.nonTerminals = make(map[string]NonTerminal, len(grammar.Rules))
+    nonTerminals := make(map[NonTerminal]string, len(grammar.Rules))
+    for _, rule := range grammar.Rules {
+        id := rule.Identifier
+        // Ensure identifier does not collide with an existing token
+        if _, ok := g.terminals[id.Name]; ok {
+            fmt.Printf("Generation error: Identifier \"%s\" is already taken by a token - %d:%d\n", id.Name, id.Location.Line, id.Location.Col)
+            continue
+        }
+        t, ok := g.nonTerminals[id.Name]
+        if !ok {
+            t = NonTerminal(len(nonTerminals))
+            g.nonTerminals[id.Name] = t; nonTerminals[t] = id.Name
+        }
+    }
+    // Convert AST expression to grammar
+    g.productions = make([]Production, 0)
+    for _, rule := range grammar.Rules {
+        t := g.nonTerminals[rule.Identifier.Name]
+        g.expressionCFG(t, rule.Expression)
+    }
+    return &Grammar { terminals, nonTerminals, 0, g.productions }
+}
+
+// For a given expression node from the AST, adds to a list of productions in CFG format.
+func (g *GrammarGenerator) expressionCFG(left NonTerminal, expression AST) {
+    // Find all production cases for a given non-terminal by obtaining leaf nodes in a union
+    var cases []AST
+    if n, ok := expression.(*UnionNode); ok {
+        // Recursively find all nodes reachable through only union nodes
+        cases = flattenUnion(n, make([]AST, 0))
+    } else {
+        cases = []AST { expression }
+    }
+    // For each case, flatten concatenated nodes to obtain symbols of each production
+    // Same procedure as finding all nodes reachable through unions, but for concatenations
+    for _, c := range cases {
+        var nodes []AST
+        if n, ok := c.(*ConcatenationNode); ok {
+            nodes = flattenConcatenation(n, make([]AST, 0))
+        } else {
+            nodes = []AST { c }
+        }
+        // Convert nodes in list to symbols
+        symbols := make([]Symbol, 0)
+        for _, n := range nodes {
+            symbol := g.symbolCFG(n)
+            if symbol != nil { symbols = append(symbols, symbol) }
+        }
+        g.productions = append(g.productions, Production { left, symbols })
+    }
+}
+
+// Converts a given expression node from the AST to a CFG symbol.
+func (g *GrammarGenerator) symbolCFG(expression AST) Symbol {
+    switch node := expression.(type) {
+    case *OptionNode: return nil
+    case *RepeatNode: return nil
+    case *RepeatOneNode: return nil
+    case *UnionNode: return nil
+        // TODO: Non-terminal insertion
+        // g.expressionCFG( , node)
+
+    case *IdentifierNode:
+        // Finds the terminal or non-terminal that the identifier is referring to
+        if _, ok := g.terminals[node.Name]; ok { return Terminal(node.Name) }
+        if t, ok := g.nonTerminals[node.Name]; ok { return t }
+        fmt.Printf("Generation error: Identifier \"%s\" is not defined - %d:%d\n", node.Name, node.Location.Line, node.Location.Col)
+        return nil
+    case *StringNode:
+        // Find terminal associated with a string, resolves if explicit string definition exists in AST
+        str := string(node.Chars); 
+        if t, ok := g.strings[str]; ok { return t }
+        fmt.Printf("Generation error: No token explicitly matches \"%s\" - %d:%d\n", str, node.Location.Line, node.Location.Col)
+        return nil
+    case *ClassNode:
+        fmt.Printf("Generation error: Classes can not be used in rule expressions - %d:%d\n", node.Location.Line, node.Location.Col)
+        return nil
+    default: panic("Invalid expression passed to GrammarGenerator.symbolCFG()")
     }
 }
 
@@ -88,8 +182,6 @@ func (g *Grammar) RemoveAmbiguities() {
     g.Productions = modified
 }
 
-// TODO: When generating parse tree, remove auxiliary non-terminals
-
 // Augment grammar with new start state. Returns production for augmented start state.
 func (g *Grammar) Augment() *Production {
     t := NonTerminal(len(g.NonTerminals))
@@ -98,6 +190,19 @@ func (g *Grammar) Augment() *Production {
     return &g.Productions[len(g.Productions) - 1]
 }
 
+// ------------------------------------------------------------------------------------------------------------------------------
+
+func flattenConcatenation(node *ConcatenationNode, nodes []AST) []AST {
+    if a, ok := node.A.(*ConcatenationNode); ok { nodes = flattenConcatenation(a, nodes) } else { nodes = append(nodes, node.A) }
+    if b, ok := node.B.(*ConcatenationNode); ok { nodes = flattenConcatenation(b, nodes) } else { nodes = append(nodes, node.B) }
+    return nodes
+}
+
+func flattenUnion(node *UnionNode, nodes []AST) []AST {
+    if a, ok := node.A.(*UnionNode); ok { nodes = flattenUnion(a, nodes) } else { nodes = append(nodes, node.A) }
+    if b, ok := node.B.(*UnionNode); ok { nodes = flattenUnion(b, nodes) } else { nodes = append(nodes, node.B) }
+    return nodes
+}
 func (t Terminal)    String(grammar *Grammar) string { return string(t) }
 func (t NonTerminal) String(grammar *Grammar) string { return grammar.NonTerminals[t] }
 func (p Production)  String(grammar *Grammar) string {
@@ -115,11 +220,12 @@ func (g *Grammar) PrintGrammar() {
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------
+// TODO: When generating parse tree, remove auxiliary non-terminals
 // TODO: Compile to generated parser program
 // TODO: Print parse trees
 
 type ShiftReduceParser struct {
-	table LRParseTable
+    table LRParseTable
 }
 
 type StackState struct {
@@ -134,38 +240,38 @@ type ParseTreeNode struct {
 
 func NewShiftReduceParser(table LRParseTable) *ShiftReduceParser { return &ShiftReduceParser { table } }
 func (p *ShiftReduceParser) Parse() *ParseTreeNode {
-	input := []Terminal { "id", "+", "id", "*", "id", EOF_TERMINAL }
-	ip := 0
-	stack := []StackState { { 0, nil } }
-	for {
-		state, token := stack[len(stack) - 1].State, input[ip]
-		action, ok := p.table.Action[state][token]
-		if !ok {
+    input := []Terminal { "id", "+", "id", "*", "id", EOF_TERMINAL }
+    ip := 0
+    stack := []StackState { { 0, nil } }
+    for {
+        state, token := stack[len(stack) - 1].State, input[ip]
+        action, ok := p.table.Action[state][token]
+        if !ok {
             fmt.Printf("Syntax error: Unexpected token %s\n", token)
             return nil
         }
-		switch action.Type {
-		case SHIFT:
+        switch action.Type {
+        case SHIFT:
             // Create leaf node for terminal
             node := &ParseTreeNode { token, nil }
             // Add new state to the stack along with leaf node
-			stack = append(stack, StackState { action.Value, node })
-			ip++
-		case REDUCE:
+            stack = append(stack, StackState { action.Value, node })
+            ip++
+        case REDUCE:
             // Find production to reduce by
-			production := p.table.Grammar.Productions[action.Value]
+            production := p.table.Grammar.Productions[action.Value]
             r := len(production.Right); l := len(stack) - r
             // Collect child nodes from current states on the stack and create node for reduction
             children := make([]*ParseTreeNode, r)
             for i, s := range stack[l:] { children[i] = s.Node }
             node := &ParseTreeNode { production.Left, children }
             // Pop stack and find next state based on goto table
-			stack = stack[:l]; state := stack[l - 1].State
+            stack = stack[:l]; state := stack[l - 1].State
             next := p.table.Goto[state][production.Left]
-			stack = append(stack, StackState { next, node })
-		case ACCEPT:
+            stack = append(stack, StackState { next, node })
+        case ACCEPT:
             fmt.Println("accept")
             return stack[1].Node
-		}
-	}
+        }
+    }
 }

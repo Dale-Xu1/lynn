@@ -15,8 +15,8 @@ func main() {
     lexer := lynn.NewLexer(bufio.NewReader(f), lynn.DEFAULT_HANDLER)
     parser := lynn.NewParser(lexer)
     ast := parser.Parse()
-    fmt.Println("== abstract syntax tree == ")
-    fmt.Println(ast)
+    // fmt.Println("== abstract syntax tree == ")
+    // fmt.Println(ast)
 
     // generator := lynn.NewLexerGenerator()
     // nfa, ranges := generator.GenerateNFA(ast)
@@ -25,7 +25,7 @@ func main() {
 
     generator := lynn.NewGrammarGenerator()
     grammar := generator.GenerateCFG(ast)
-    grammar.RemoveAmbiguities()
+    // grammar.RemoveAmbiguities()
     // generator := lynn.NewLALRParserGenerator()
     // table := generator.Generate(grammar)
     fmt.Println("== grammar ==")

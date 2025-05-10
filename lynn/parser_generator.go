@@ -39,8 +39,6 @@ type LALRParserGenerator struct {
     first     map[Symbol]map[Terminal]struct{}
 }
 
-// ------------------------------------------------------------------------------------------------------------------------------
-
 // Returns a new LALR parser generator struct.
 func NewLALRParserGenerator() *LALRParserGenerator { return &LALRParserGenerator { } }
 // Converts a grammar definition to an LR(1) parse table.
@@ -284,6 +282,8 @@ func (g *LALRParserGenerator) buildParseTable(states []*LRState) LRParseTable {
     }
     return table
 }
+
+// ------------------------------------------------------------------------------------------------------------------------------
 
 // Creates unique identifier string given a set of LR(0) items for use in a map.
 func getLR0ItemStateKey(items map[LR0Item]struct{}) string {

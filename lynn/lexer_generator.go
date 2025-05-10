@@ -37,14 +37,12 @@ type LexerGenerator struct {
     accept    map[*LDFAState]string
 }
 
-// ------------------------------------------------------------------------------------------------------------------------------
-
 // Returns a new lexer generator struct.
 func NewLexerGenerator() *LexerGenerator { return &LexerGenerator { } }
 // Converts regular expressions defined in grammar into a non-deterministic finite automata.
 func (g *LexerGenerator) GenerateNFA(grammar *GrammarNode) (LNFA, []Range) {
     g.fragments, g.ranges = make(map[string]LNFAFragment), make(map[Range]struct{})
-    tokens := make(map[string]struct{})
+    tokens := make(map[string]struct{}, len(grammar.Fragments) + len(grammar.Tokens))
     for _, fragment := range grammar.Fragments {
         // Convert fragment expressions to NFAs and add fragment to identifier map
         nfa, ok := g.expressionNFA(fragment.Expression)
@@ -139,7 +137,7 @@ func (g *LexerGenerator) expressionNFA(expression AST) (LNFAFragment, bool) {
     case *IdentifierNode:
         fa, ok := g.fragments[node.Name]
         if !ok {
-            fmt.Printf("Generation error: Fragment \"%s\" does not exist - %d:%d\n", node.Name, node.Location.Line, node.Location.Col)
+            fmt.Printf("Generation error: Fragment \"%s\" is not defined - %d:%d\n", node.Name, node.Location.Line, node.Location.Col)
             return LNFAFragment { }, false
         }
         states := make(map[*LNFAState]*LNFAState)

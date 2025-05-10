@@ -6,10 +6,10 @@ rule
     ;
 
 expr
-    : "(" expr ")"
-    | expr ("+" | "*" | "?")
+    : expr "|" expr
     | expr expr
-    | expr "|" expr
+    | expr ("+" | "*" | "?")
+    | "(" expr ")"
     | IDENTIFIER
     | STRING
     | CLASS
