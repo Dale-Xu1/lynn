@@ -10,10 +10,7 @@ expr
     | expr expr
     | expr ("+" | "*" | "?")
     | "(" expr ")"
-    | IDENTIFIER
-    | STRING
-    | CLASS
-    | "."
+    | IDENTIFIER | STRING | CLASS | "."
     ;
 
 token WHITESPACE : [ \t\n\r]+ -> skip ;

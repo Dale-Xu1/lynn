@@ -29,6 +29,7 @@ type GrammarGenerator struct {
     strings      map[string]Terminal
     nonTerminals map[string]NonTerminal
     parentData   map[NonTerminal]*nonTerminalData
+    parents      map[NonTerminal]NonTerminal
     productions  []Production
 }
 type nonTerminalData struct {
@@ -64,6 +65,7 @@ func (g *GrammarGenerator) GenerateCFG(grammar *GrammarNode) *Grammar {
     // Create list of unique non-terminals and assign index identifiers to each
     g.nonTerminals = make(map[string]NonTerminal,           len(grammar.Rules))
     g.parentData   = make(map[NonTerminal]*nonTerminalData, len(grammar.Rules))
+    g.parents      = make(map[NonTerminal]NonTerminal)
     for _, rule := range grammar.Rules {
         id := rule.Identifier
         // Ensure identifier does not collide with an existing token
@@ -83,15 +85,17 @@ func (g *GrammarGenerator) GenerateCFG(grammar *GrammarNode) *Grammar {
     g.productions = make([]Production, 0)
     for _, rule := range grammar.Rules {
         t := g.nonTerminals[rule.Identifier.Name]
-        g.expressionCFG(t, t, rule.Expression)
+        g.expressionCFG(t, rule.Expression)
     }
+    g.removeAmbiguities()
+    // Collect accumulated data into grammar struct
     nonTerminals := make(map[NonTerminal]string, len(g.nonTerminals))
     for id, t := range g.nonTerminals { nonTerminals[t] = id }
     return &Grammar { terminals, nonTerminals, 0, g.productions }
 }
 
 // For a given expression node from the AST, adds to a list of productions in CFG format.
-func (g *GrammarGenerator) expressionCFG(parent NonTerminal, left NonTerminal, expression AST) {
+func (g *GrammarGenerator) expressionCFG(left NonTerminal, expression AST) {
     // Find all production cases for a given non-terminal by obtaining leaf nodes in a union
     var cases []AST
     if n, ok := expression.(*UnionNode); ok {
@@ -112,7 +116,7 @@ func (g *GrammarGenerator) expressionCFG(parent NonTerminal, left NonTerminal, e
         // Convert nodes in list to symbols
         symbols := make([]Symbol, 0)
         for _, n := range nodes {
-            symbol := g.symbolCFG(parent, n)
+            symbol := g.symbolCFG(left, n)
             if symbol != nil { symbols = append(symbols, symbol) }
         }
         g.productions = append(g.productions, Production { left, symbols })
@@ -120,33 +124,33 @@ func (g *GrammarGenerator) expressionCFG(parent NonTerminal, left NonTerminal, e
 }
 
 // Converts a given expression node from the AST to a CFG symbol.
-func (g *GrammarGenerator) symbolCFG(parent NonTerminal, expression AST) Symbol {
+func (g *GrammarGenerator) symbolCFG(left NonTerminal, expression AST) Symbol {
     switch node := expression.(type) {
     case *OptionNode:
         // Create new non-terminal with possible productions including an epsilon production
-        t := g.deriveNonTerminal(parent)
-        g.expressionCFG(parent, t, node.Expression)
+        t := g.deriveNonTerminal(left)
+        g.expressionCFG(t, node.Expression)
         g.productions = append(g.productions, Production { t, []Symbol { } })
         return t
     case *RepeatNode:
         // Two new non-terminals are created for repetitions:
         // E_0 -> E_0 E_1 (E_1 can be repeated 0 or more times)
         // E_0 -> epsilon
-        t1, t2 := g.deriveNonTerminal(parent), g.deriveNonTerminal(parent)
+        t1, t2 := g.deriveNonTerminal(left), g.deriveNonTerminal(left)
         g.productions = append(g.productions, Production { t1, []Symbol { t1, t2 } }, Production { t1, []Symbol { } })
-        g.expressionCFG(parent, t2, node.Expression)
+        g.expressionCFG(t2, node.Expression)
         return t1
     case *RepeatOneNode:
         // E_0 -> E_0 E_1
         // E_0 -> E_1 (E_1 can be repeated 1 or more times)
-        t1, t2 := g.deriveNonTerminal(parent), g.deriveNonTerminal(parent)
+        t1, t2 := g.deriveNonTerminal(left), g.deriveNonTerminal(left)
         g.productions = append(g.productions, Production { t1, []Symbol { t1, t2 } }, Production { t1, []Symbol { t2 } })
-        g.expressionCFG(parent, t2, node.Expression)
+        g.expressionCFG(t2, node.Expression)
         return t1
     case *UnionNode:
         // Separate inner union to new non-terminal
-        t := g.deriveNonTerminal(parent)
-        g.expressionCFG(parent, t, node)
+        t := g.deriveNonTerminal(left)
+        g.expressionCFG(t, node)
         return t
 
     case *IdentifierNode:
@@ -168,27 +172,17 @@ func (g *GrammarGenerator) symbolCFG(parent NonTerminal, expression AST) Symbol 
     }
 }
 
-// Creates a new non-terminal derived from a parent non-terminal.
-func (g *GrammarGenerator) deriveNonTerminal(parent NonTerminal) NonTerminal {
-    // Derive new non-terminal from parent
-    data := g.parentData[parent]
-    id := fmt.Sprintf("%s_%d", data.identifier, data.derivatives)
-    data.derivatives++
-    // Register non-terminal
-    t := NonTerminal(len(g.nonTerminals)); g.nonTerminals[id] = t
-    return t
-}
-
-// Removes simple precedence and associativity ambiguities in the grammar.
+// TODO: Further generalization (implicit left/right recursion, dangling-else ambiguity?)
+// Removes simple precedence and associativity operator-form ambiguities in the grammar.
 // Not guaranteed to remove all ambiguities, but will resolve those of infix operations.
-func (g *Grammar) RemoveAmbiguities() {
-    productions := make(map[NonTerminal][]Production, len(g.NonTerminals))
-    modified := make([]Production, 0, len(g.Productions))
+func (g *GrammarGenerator) removeAmbiguities() {
+    productions := make(map[NonTerminal][]Production, len(g.nonTerminals))
+    modified := make([]Production, 0, len(g.productions))
     // Group productions together based on their non-terminal
-    for _, p := range g.Productions { productions[p.Left] = append(productions[p.Left], p) }
+    for _, p := range g.productions { productions[p.Left] = append(productions[p.Left], p) }
     for t, group := range productions {
-        // Split productions for a given non-terminal based on if there exists self-recursion at both ends of the production
-        // Productions classified as ambiguous follow the form E -> E ... E
+        // Split productions for a given non-terminal based on if there exists both left and right-recursion
+        // Operator-form productions classified as ambiguous follow the form E -> E ... E
         a, r := make([]Production, 0), make([]Production, 0)
         for _, p := range group {
             if len(p.Right) >= 2 && p.Right[0] == t && p.Right[len(p.Right) - 1] == t {
@@ -201,8 +195,7 @@ func (g *Grammar) RemoveAmbiguities() {
         left := t
         for _, p := range a {
             // Create new auxiliary non-terminal
-            next := NonTerminal(len(g.NonTerminals))
-            g.NonTerminals[next] = fmt.Sprintf("%s'", g.NonTerminals[left]) // Use name of previous non-terminal with a '
+            next := g.deriveNonTerminal(t)
             // Modify non-terminals at the ends
             // For left-associative productions,  E_k -> E_k ... E_{k + 1}
             // For right-associative productions, E_k -> E_{k + 1} ... E_k
@@ -210,7 +203,6 @@ func (g *Grammar) RemoveAmbiguities() {
             copy(symbols[1:], p.Right[1:len(p.Right) - 1])
             symbols[0], symbols[len(symbols) - 1] = left, next
             // TODO: Allow grammar to specify associativity
-            // TODO: Look more into automatic disambiguation (or manual markers)
             // symbols[0], symbols[len(symbols) - 1] = next, left
             // Add modified productions to new list
             modified = append(modified, Production { left, symbols })
@@ -227,7 +219,20 @@ func (g *Grammar) RemoveAmbiguities() {
             modified = append(modified, Production { left, p.Right })
         }
     }
-    g.Productions = modified
+    g.productions = modified
+}
+
+// Creates a new non-terminal derived from a parent non-terminal.
+func (g *GrammarGenerator) deriveNonTerminal(nt NonTerminal) NonTerminal {
+    // Derive new non-terminal from parent
+    parent, ok := g.parents[nt]; if !ok { parent = nt }
+    data := g.parentData[parent]
+    id := fmt.Sprintf("%s_%d", data.identifier, data.derivatives)
+    data.derivatives++
+    // Register non-terminal and its reference to its parent
+    t := NonTerminal(len(g.nonTerminals))
+    g.nonTerminals[id] = t; g.parents[t] = parent
+    return t
 }
 
 // Augment grammar with new start state. Returns production for augmented start state.
