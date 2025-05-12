@@ -28,10 +28,11 @@ func (p *Parser) Parse() *GrammarNode {
 }
 
 func (p *Parser) parseRule() AST {
-    switch token := p.lexer.Token; {
-    case p.lexer.Match(IDENTIFIER):
-        // Parse following pattern: [identifier] : <expr> ;
-        if !p.lexer.Match(COLON) { return nil }
+    switch {
+    case p.lexer.Match(RULE):
+        // Parse following pattern: rule [identifier] : <expr> ;
+        token := p.lexer.Token
+        if !p.lexer.Match(IDENTIFIER) || !p.lexer.Match(COLON) { return nil }
         expression := p.parseExpressionDefault()
         if expression == nil || !p.lexer.Match(SEMI) { return nil }
         return &RuleNode { &IdentifierNode { token.Value, token.Location }, expression }

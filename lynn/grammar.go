@@ -33,8 +33,8 @@ type GrammarGenerator struct {
     productions  []Production
 }
 type nonTerminalData struct {
-    identifier  string
-    derivatives int
+    identifier string
+    children   int
 }
 
 // Returns a grammar generator struct.
@@ -74,9 +74,8 @@ func (g *GrammarGenerator) GenerateCFG(grammar *GrammarNode) *Grammar {
                 id.Name, id.Location.Line, id.Location.Col)
             continue
         }
-        t, ok := g.nonTerminals[id.Name]
-        if !ok {
-            t = NonTerminal(len(g.nonTerminals))
+        if _, ok := g.nonTerminals[id.Name]; !ok {
+            t := NonTerminal(len(g.nonTerminals))
             g.nonTerminals[id.Name] = t
             g.parentData[t] = &nonTerminalData { id.Name, 0 }
         }
@@ -114,7 +113,7 @@ func (g *GrammarGenerator) expressionCFG(left NonTerminal, expression AST) {
             nodes = []AST { c }
         }
         // Convert nodes in list to symbols
-        symbols := make([]Symbol, 0)
+        symbols := make([]Symbol, 0, len(nodes))
         for _, n := range nodes {
             symbol := g.symbolCFG(left, n)
             if symbol != nil { symbols = append(symbols, symbol) }
@@ -172,52 +171,63 @@ func (g *GrammarGenerator) symbolCFG(left NonTerminal, expression AST) Symbol {
     }
 }
 
-// TODO: Further generalization (implicit left/right recursion, dangling-else ambiguity?)
+// TODO: Allow grammar to specify associativity, further generalization (dangling-else ambiguity?)
+
 // Removes simple precedence and associativity operator-form ambiguities in the grammar.
-// Not guaranteed to remove all ambiguities, but will resolve those of infix operations.
+// Not guaranteed to remove all ambiguities, but will resolve those of infix, prefix, and postfix operations.
 func (g *GrammarGenerator) removeAmbiguities() {
+    type AmbiguityType uint
+    type Ambiguity struct { production Production; t AmbiguityType }
+    const (NONE AmbiguityType = iota; INFIX; PREFIX; POSTFIX)
+    // Group productions together based on their non-terminal
     productions := make(map[NonTerminal][]Production, len(g.nonTerminals))
     modified := make([]Production, 0, len(g.productions))
-    // Group productions together based on their non-terminal
     for _, p := range g.productions { productions[p.Left] = append(productions[p.Left], p) }
-    for t, group := range productions {
-        // Split productions for a given non-terminal based on if there exists both left and right-recursion
-        // Operator-form productions classified as ambiguous follow the form E -> E ... E
-        a, r := make([]Production, 0), make([]Production, 0)
+    for nt, group := range productions {
+        // Split productions for a given non-terminal based on if there exists left or right-recursion
+        a, rest := make([]Ambiguity, 0), make([]Production, 0)
         for _, p := range group {
-            if len(p.Right) >= 2 && p.Right[0] == t && p.Right[len(p.Right) - 1] == t {
-                a = append(a, p)
-            } else {
-                r = append(r, p)
+            if len(p.Right) >= 2 {
+                l, r := p.Right[0] == nt, p.Right[len(p.Right) - 1] == nt
+                // Determine type of recursion and type of operator
+                t := NONE
+                switch {
+                case l && r: t = INFIX   // E -> E ... E
+                case l:      t = POSTFIX // E -> E ...
+                case r:      t = PREFIX  // E -> ... E
+                }
+                if t != NONE {
+                    a = append(a, Ambiguity { p, t })
+                    continue
+                }
             }
+            rest = append(rest, p)
         }
-        // For each ambiguous production, replace with left or right-recursive form
-        left := t
-        for _, p := range a {
+        // Divide non-terminal productions into multiple precedence levels
+        left := nt
+        for i, m := range a {
             // Create new auxiliary non-terminal
-            next := g.deriveNonTerminal(t)
-            // Modify non-terminals at the ends
-            // For left-associative productions,  E_k -> E_k ... E_{k + 1}
-            // For right-associative productions, E_k -> E_{k + 1} ... E_k
-            symbols := make([]Symbol, len(p.Right))
-            copy(symbols[1:], p.Right[1:len(p.Right) - 1])
-            symbols[0], symbols[len(symbols) - 1] = left, next
-            // TODO: Allow grammar to specify associativity
-            // symbols[0], symbols[len(symbols) - 1] = next, left
-            // Add modified productions to new list
-            modified = append(modified, Production { left, symbols })
-            modified = append(modified, Production { left, []Symbol { next } })
-            left = next
+            right := make([]Symbol, len(m.production.Right)); copy(right, m.production.Right)
+            next := g.deriveNonTerminal(nt)
+            switch m.t {
+            case INFIX:
+                // For infix ambiguity, eliminate either left or right-recursion to force associativity
+                // For left-associative productions,  E_k -> E_k ... E_{k + 1} (eliminate right-recursion)
+                // For right-associative productions, E_k -> E_{k + 1} ... E_k
+                right[0], right[len(right) - 1] = left, next
+            case PREFIX:  right[len(right) - 1] = left
+            case POSTFIX: right[0] = left
+            }
+            modified = append(modified, Production { left, right })
+            // For each precedence level, create direct production to level of higher precedence
+            // Does not need to be created if all productions were ambiguous
+            if i < len(a) - 1 || len(rest) > 0 {
+                modified = append(modified, Production { left, []Symbol { next } })
+                left = next
+            }
         }
         // For remaining productions, replace left non-terminal with new non-terminal of highest precedence
-        for _, p := range r {
-            if len(p.Right) > 0 {
-                // Replace left and right recursion with high precedence non-terminal
-                if p.Right[0]                == t { p.Right[0]                = left }
-                if p.Right[len(p.Right) - 1] == t { p.Right[len(p.Right) - 1] = left }
-            }
-            modified = append(modified, Production { left, p.Right })
-        }
+        for _, p := range rest { modified = append(modified, Production { left, p.Right }) }
     }
     g.productions = modified
 }
@@ -227,9 +237,15 @@ func (g *GrammarGenerator) deriveNonTerminal(nt NonTerminal) NonTerminal {
     // Derive new non-terminal from parent
     parent, ok := g.parents[nt]; if !ok { parent = nt }
     data := g.parentData[parent]
-    id := fmt.Sprintf("%s_%d", data.identifier, data.derivatives)
-    data.derivatives++
-    // Register non-terminal and its reference to its parent
+    // Generate new name from parent name
+    var id string
+    for {
+        id = fmt.Sprintf("%s_%d", data.identifier, data.children)
+        data.children++
+        // Handle naming collisions
+        if _, ok := g.nonTerminals[id]; !ok { break }
+    }
+    // Register non-terminal and reference to its parent
     t := NonTerminal(len(g.nonTerminals))
     g.nonTerminals[id] = t; g.parents[t] = parent
     return t
@@ -238,7 +254,7 @@ func (g *GrammarGenerator) deriveNonTerminal(nt NonTerminal) NonTerminal {
 // Augment grammar with new start state. Returns production for augmented start state.
 func (g *Grammar) Augment() *Production {
     t := NonTerminal(len(g.NonTerminals))
-    g.NonTerminals[t] = "_S"
+    g.NonTerminals[t] = "S'"
     g.Productions = append(g.Productions, Production { t, []Symbol { g.Start } })
     return &g.Productions[len(g.Productions) - 1]
 }
@@ -257,9 +273,15 @@ func flattenUnion(node *UnionNode, nodes []AST) []AST {
     return nodes
 }
 
+// func (p *Production) copy(left NonTerminal) Production {
+//     // Create new production with same symbol sequence and assign to new non-terminal
+//     right := make([]Symbol, len(p.Right)); copy(right, p.Right)
+//     return Production { left, right }
+// }
+
 func (t Terminal)    String(grammar *Grammar) string { return string(t) }
 func (t NonTerminal) String(grammar *Grammar) string { return grammar.NonTerminals[t] }
-func (p Production)  String(grammar *Grammar) string {
+func (p *Production) String(grammar *Grammar) string {
     var builder strings.Builder
     builder.WriteString(fmt.Sprintf("%s ->", p.Left.String(grammar)))
     if len(p.Right) > 0 {

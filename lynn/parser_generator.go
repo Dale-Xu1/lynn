@@ -262,7 +262,7 @@ func (g *LALRParserGenerator) buildParseTable(states []*LRState) LRParseTable {
             } else {
                 id := productionId[item.Production]
                 if existing, ok := action[item.Lookahead]; ok {
-                    p1 := g.grammar.Productions[id].String(g.grammar)
+                    p1 := item.Production.String(g.grammar)
                     switch existing.Type {
                     case SHIFT:
                         // Reduce action is ignored, preferring shift action if it already exists
