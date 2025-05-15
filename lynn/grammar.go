@@ -81,9 +81,10 @@ func (g *GrammarGenerator) GenerateCFG(grammar *GrammarNode) *Grammar {
         t := NonTerminal(rule.Identifier.Name); 
         g.expressionCFG(t, rule.Expression)
     }
+    start := g.simplifyGrammar()
     g.removeAmbiguities()
     // Collect accumulated data into grammar struct
-    return &Grammar { terminals, g.nonTerminals, g.nonTerminals[0], g.productions }
+    return &Grammar { terminals, g.nonTerminals, start, g.productions }
 }
 
 // For a given expression node from the AST, adds to a list of productions in CFG format.
@@ -164,6 +165,45 @@ func (g *GrammarGenerator) symbolCFG(left NonTerminal, expression AST) Symbol {
     }
 }
 
+// Removes non-terminals when there exists a production asserting equality between two non-terminals.
+func (g *GrammarGenerator) simplifyGrammar() NonTerminal {
+    // Group productions together based on their non-terminal
+    productions := make(map[NonTerminal][]Production, len(g.nonTerminals))
+    for _, p := range g.productions { productions[p.Left] = append(productions[p.Left], p) }
+    // Generate replacement map for equivalent non-terminals
+    // A non-terminal is only equivalent if there exists a non-terminal whose only production is N_1 -> N_2
+    replacement := make(map[NonTerminal]NonTerminal)
+    for nt, group := range productions {
+        if _, ok := replacement[nt]; ok || len(group) > 1 { continue }
+        p := group[0]; if len(p.Right) != 1 { continue }
+        if t, ok := p.Right[0].(NonTerminal); ok { replacement[nt] = t }
+    }
+    // Replace occurrences according to map
+    simplified := make([]Production, 0)
+    for _, p := range g.productions {
+        if _, ok := replacement[p.Left]; ok { continue }
+        // Create modified copy of production
+        right := make([]Symbol, len(p.Right))
+        for i, s := range p.Right {
+            if t, ok := s.(NonTerminal); ok {
+                if r, ok := replacement[t]; ok { right[i] = r; continue }
+            }
+            right[i] = s
+        }
+        simplified = append(simplified, Production { p.Left, right })
+    }
+    // Collect non-terminals that have not been replaced
+    start := g.nonTerminals[0]
+    nonTerminals := make([]NonTerminal, 0, len(g.nonTerminals))
+    for _, t := range g.nonTerminals {
+        if _, ok := replacement[t]; !ok { nonTerminals = append(nonTerminals, t) }
+    }
+    g.nonTerminals = nonTerminals
+    g.productions = simplified
+    if r, ok := replacement[start]; ok { return r }
+    return start
+}
+
 // TODO: Allow grammar to specify associativity, further generalization (dangling-else ambiguity?)
 
 // Removes simple precedence and associativity operator-form ambiguities in the grammar.
@@ -222,36 +262,6 @@ func (g *GrammarGenerator) removeAmbiguities() {
     }
     g.productions = modified
 }
-
-// TODO: Grammar simplification
-// func (g *GrammarGenerator) simplifyGrammar() {
-//     // Group productions together based on their non-terminal
-//     productions := make(map[NonTerminal][]Production, len(g.nonTerminals))
-//     simplified := make([]Production, 0)
-//     for _, p := range g.productions { productions[p.Left] = append(productions[p.Left], p) }
-//     // Generate replacement map for equivalent non-terminals
-//     // A non-terminal is only equivalent if there exists a non-terminal whose only production is N_1 -> N_2
-//     replacement := make(map[NonTerminal]NonTerminal)
-//     for nt, group := range productions {
-//         if _, ok := replacement[nt]; ok || len(group) > 1 { continue }
-//         p := group[0]; if len(p.Right) != 1 { continue }
-//         if t, ok := p.Right[0].(NonTerminal); ok { replacement[nt] = t }
-//     }
-//     // Replace occurrences according to map
-//     for _, p := range g.productions {
-//         if _, ok := replacement[p.Left]; ok { continue }
-//         // Create modified copy of production
-//         right := make([]Symbol, len(p.Right))
-//         for i, s := range p.Right {
-//             if t, ok := s.(NonTerminal); ok {
-//                 if r, ok := replacement[t]; ok { right[i] = r; continue }
-//             }
-//             right[i] = s
-//         }
-//         simplified = append(simplified, Production { p.Left, right })
-//     }
-//     g.productions = simplified
-// }
 
 // Creates a new non-terminal derived from a parent non-terminal.
 func (g *GrammarGenerator) deriveNonTerminal(nt NonTerminal) NonTerminal {
@@ -315,9 +325,9 @@ func (g *Grammar) PrintGrammar() {
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------
-// TODO: When generating parse tree, remove auxiliary non-terminals
-// TODO: Compile to generated parser program
+// TODO: When generating parse tree, remove auxiliary non-terminals (production type metadata)
 // TODO: Print parse trees
+// TODO: Compile to generated parser program
 
 type ShiftReduceParser struct {
     table LRParseTable
