@@ -62,7 +62,7 @@ func (g *LALRParserGenerator) findFirst() {
     for _, t := range g.grammar.Terminals {
         if t != EOF_TERMINAL { g.first[t] = map[Terminal]struct{} { t: {} } }
     }
-    for t := range g.grammar.NonTerminals { g.first[t] = make(map[Terminal]struct{}) }
+    for _, t := range g.grammar.NonTerminals { g.first[t] = make(map[Terminal]struct{}) }
     // Iterative implementation, repeat procedure until no changes are made
     for changed := true; changed; {
         changed = false
@@ -249,7 +249,7 @@ func (g *LALRParserGenerator) buildParseTable(states []*LRState) LRParseTable {
             id := stateId[next]
             // Shift if the transition is on a terminal, goto if it is on a non-terminal
             switch t := symbol.(type) {
-            case Terminal: action[t] = ActionEntry { SHIFT, stateId[next] }
+            case Terminal:    action[t] = ActionEntry { SHIFT, stateId[next] }
             case NonTerminal: jump[t] = id
             }
         }
@@ -262,17 +262,16 @@ func (g *LALRParserGenerator) buildParseTable(states []*LRState) LRParseTable {
             } else {
                 id := productionId[item.Production]
                 if existing, ok := action[item.Lookahead]; ok {
-                    p1 := item.Production.String(g.grammar)
                     switch existing.Type {
                     case SHIFT:
                         // Reduce action is ignored, preferring shift action if it already exists
-                        fmt.Printf("Generation error: Shift/reduce conflict on token %s for production %s\n", item.Lookahead, p1)
+                        fmt.Printf("Generation error: Shift/reduce conflict on token %s for production %v\n",
+                            item.Lookahead, item.Production)
                         continue
                     case REDUCE:
                         // Resolve reduce/reduce conflict by choosing reduce action with lower production identifier
-                        p2 := g.grammar.Productions[existing.Value].String(g.grammar)
-                        fmt.Printf("Generation error: Reduce/reduce conflict on token %s between productions %s and %s\n",
-                            item.Lookahead, p1, p2)
+                        fmt.Printf("Generation error: Reduce/reduce conflict on token %s between productions %v and %v\n",
+                            item.Lookahead, item.Production, g.grammar.Productions[existing.Value])
                         if id > existing.Value { continue }
                     }
                 }
@@ -328,21 +327,20 @@ func getLR1ItemStateKey(items map[LR1Item]struct{}) string {
 
 // FOR DEBUG PURPOSES:
 // Prints all LR(1) states in the graph and transitions between states.
-func PrintStates(states []*LRState, grammar *Grammar) {
+func PrintStates(states []*LRState) {
     ids := make(map[*LRState]int)
     for i, state := range states { ids[state] = i }
     for i, state := range states {
         fmt.Printf("%d ", i)
         for item := range state.Items {
             right := item.Production.Right
-            str := make([]string, len(right))
-            for i, s := range right { str[i] = s.String(grammar) }
-            fmt.Printf("[%s -> %s.%s, %s] ", item.Production.Left.String(grammar),
+            str := make([]string, len(right)); for i, s := range right { str[i] = s.String() }
+            fmt.Printf("[%s -> %s.%s, %s] ", item.Production.Left,
                 strings.Join(str[:item.Dot], " "), strings.Join(str[item.Dot:], " "), item.Lookahead)
         }
         fmt.Println()
         for s, next := range state.Transitions {
-            fmt.Printf("    %s -> %d\n", s.String(grammar), ids[next])
+            fmt.Printf("    %s -> %d\n", s, ids[next])
         }
     }
 }
@@ -352,7 +350,7 @@ func PrintStates(states []*LRState, grammar *Grammar) {
 func (t LRParseTable) PrintTable() {
     fmt.Print("state  |")
     for _, t := range t.Grammar.Terminals { fmt.Printf(" %-6.6s |", t) }; fmt.Print(" |")
-    for i := range len(t.Grammar.NonTerminals) { fmt.Printf(" %-6.6s |", NonTerminal(i).String(t.Grammar)) }; fmt.Println()
+    for _, t := range t.Grammar.NonTerminals { fmt.Printf(" %-6.6s |", t) }; fmt.Println()
     l := 8 + len(t.Grammar.Terminals) * 9 + 2 + len(t.Grammar.NonTerminals) * 9
     fmt.Println(strings.Repeat("-", l))
     for i := range t.Action {
@@ -369,8 +367,8 @@ func (t LRParseTable) PrintTable() {
             fmt.Printf(" %-6s |", str)
         }
         fmt.Print(" |")
-        for i := range len(t.Grammar.NonTerminals) {
-            g, ok := jump[NonTerminal(i)]
+        for _, t := range t.Grammar.NonTerminals {
+            g, ok := jump[t]
             if ok {
                 fmt.Printf(" %-6d |", g)
             } else {

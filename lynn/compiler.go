@@ -12,7 +12,6 @@ func CompileLexer(file string, grammar *GrammarNode, ranges []Range, dfa LDFA) {
     data, err := os.ReadFile(LEXER_TEMPLATE)
     if err != nil { panic(err) }
     template := string(data)
-
     // Format token type information
     tokens, typeName := make([]string, len(grammar.Tokens)), make([]string, len(grammar.Tokens))
     skip := make([]string, 0)
@@ -25,7 +24,6 @@ func CompileLexer(file string, grammar *GrammarNode, ranges []Range, dfa LDFA) {
         }
     }
     tokens[0] += " TokenType = iota"
-
     // Format range information
     rangeIndices := make(map[Range]int, len(ranges))
     rangeStrings := make([]string, len(ranges))
@@ -33,7 +31,6 @@ func CompileLexer(file string, grammar *GrammarNode, ranges []Range, dfa LDFA) {
     for i, r := range ranges {
         rangeStrings[i] = fmt.Sprintf("{ %q, %q }", r.Min, r.Max)
     }
-
     // Format state information
     stateIndices := map[*LDFAState]int { dfa.Start: 0 }
     transitions := make([]string, len(dfa.States))
@@ -53,13 +50,11 @@ func CompileLexer(file string, grammar *GrammarNode, ranges []Range, dfa LDFA) {
         }
         transitions[i] = fmt.Sprintf("    { %s },", strings.Join(out, ", "))
     }
-
     // Format accepting states
     accept := make([]string, 0, len(dfa.Accept))
     for state, token := range dfa.Accept {
         accept = append(accept, fmt.Sprintf("%d: %s", stateIndices[state], token))
     }
-
     // Replace sections with compiled DFA
     pairs := []string {
         "/*{0}*/", file,
@@ -71,7 +66,6 @@ func CompileLexer(file string, grammar *GrammarNode, ranges []Range, dfa LDFA) {
         "/*{6}*/", strings.Join(accept, ", "),
     }
     result := strings.NewReplacer(pairs...).Replace(template)
-
     // Write modified template to lexer program file
     if err := os.MkdirAll("out", 0755); err != nil { panic(err) }
     f, err := os.Create("out/lexer.go")
