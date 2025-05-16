@@ -42,6 +42,7 @@ func (g *GrammarGenerator) GenerateCFG(grammar *GrammarNode) *Grammar {
     g.terminals, g.strings = make(map[string]struct{}, len(grammar.Tokens)), make(map[string]Terminal, len(grammar.Tokens))
     terminals := make([]Terminal, 0, len(grammar.Tokens))
     for _, token := range grammar.Tokens {
+        if token.Skip { continue }
         id := token.Identifier
         if _, ok := g.terminals[id.Name]; ok {
             fmt.Printf("Generation error: Token \"%s\" is already defined - %d:%d\n", id.Name, id.Location.Line, id.Location.Col)
@@ -81,13 +82,40 @@ func (g *GrammarGenerator) GenerateCFG(grammar *GrammarNode) *Grammar {
         t := NonTerminal(rule.Identifier.Name); 
         g.expressionCFG(t, rule.Expression)
     }
-    g.removeAmbiguities()
+    g.removeOperatorAmbiguities()
     // Collect accumulated data into grammar struct
     return &Grammar { terminals, g.nonTerminals, g.nonTerminals[0], g.productions }
 }
 
-// For a given expression node from the AST, adds to a list of productions in CFG format.
+// Converts a given expression node from the AST to its corresponding CFG structure.
 func (g *GrammarGenerator) expressionCFG(left NonTerminal, expression AST) {
+    switch node := expression.(type) {
+    case *OptionNode:
+        // Create production including an epsilon production
+        g.expressionCFG(left, node.Expression)
+        g.productions = append(g.productions, Production { left, []Symbol { } })
+    case *RepeatNode:
+        // E -> E E' (E' can be repeated 0 or more times)
+        // E -> epsilon
+        t := g.expandExpressionCFG(left, node.Expression)
+        g.productions = append(g.productions, Production { left, []Symbol { left, t } }, Production { left, []Symbol { } })
+    case *RepeatOneNode:
+        // E -> E E'
+        // E -> E' (E' can be repeated 1 or more times)
+        t := g.expandExpressionCFG(left, node.Expression)
+        g.productions = append(g.productions, Production { left, []Symbol { left, t } }, Production { left, []Symbol { t } })
+    case *ConcatenationNode: g.flattenExpressionCFG(left, node)
+    case *UnionNode:         g.flattenExpressionCFG(left, node)
+    default:
+        s, ok := g.literalCFG(node)
+        if s != nil {
+            g.productions = append(g.productions, Production{ left, []Symbol { s } })
+        } else if !ok { panic("Invalid expression node passed to GrammarGenerator.symbolCFG()") }
+    }
+}
+
+// For a given expression node from the AST, adds to a list of productions in CFG format.
+func (g *GrammarGenerator) flattenExpressionCFG(left NonTerminal, expression AST) {
     // Find all production cases for a given non-terminal by obtaining leaf nodes in a union
     var cases []AST
     if n, ok := expression.(*UnionNode); ok {
@@ -100,47 +128,26 @@ func (g *GrammarGenerator) expressionCFG(left NonTerminal, expression AST) {
     // Same procedure as finding all nodes reachable through unions, but for concatenations
     for _, c := range cases {
         n, ok := c.(*ConcatenationNode)
-        if !ok { g.symbolCFG(left, c); continue }
+        if !ok { g.expressionCFG(left, c); continue }
         // Convert nodes in list to symbols
         nodes := flattenConcatenation(n, make([]AST, 0))
         symbols := make([]Symbol, 0, len(nodes))
         for _, n := range nodes {
-            s := g.expandCFG(left, n)
+            s := g.expandExpressionCFG(left, n)
             if s != nil { symbols = append(symbols, s) }
         }
         g.productions = append(g.productions, Production { left, symbols })
     }
 }
 
-func (g *GrammarGenerator) expandCFG(left NonTerminal, expression AST) Symbol {
-    // For literals, convert and return terminal directly, otherwise create new non-terminal and expand expression
+// Determines whether or not parts of an expression needs to be expanded to a new non-terminal.
+func (g *GrammarGenerator) expandExpressionCFG(left NonTerminal, expression AST) Symbol {
+    // For literals, convert and return terminal directly
     s, ok := g.literalCFG(expression); if ok { return s }
+    // Otherwise, create new non-terminal and expand expression
     t := g.deriveNonTerminal(left)
-    g.symbolCFG(t, expression)
+    g.expressionCFG(t, expression)
     return t
-}
-
-// Converts a given expression node from the AST to a CFG symbol.
-func (g *GrammarGenerator) symbolCFG(left NonTerminal, expression AST) {
-    switch node := expression.(type) {
-    case *OptionNode:
-        // Create production including an epsilon production
-        g.expressionCFG(left, node.Expression)
-        g.productions = append(g.productions, Production { left, []Symbol { } })
-    case *RepeatNode:
-        // E_0 -> E_0 E_1 (E_1 can be repeated 0 or more times)
-        // E_0 -> epsilon
-        t := g.expandCFG(left, node.Expression)
-        g.productions = append(g.productions, Production { left, []Symbol { left, t } }, Production { left, []Symbol { } })
-    case *RepeatOneNode:
-        // E_0 -> E_0 E_1
-        // E_0 -> E_1 (E_1 can be repeated 1 or more times)
-        t := g.expandCFG(left, node.Expression)
-        g.productions = append(g.productions, Production { left, []Symbol { left, t } }, Production { left, []Symbol { t } })
-    case *UnionNode: g.expressionCFG(left, node)
-    default:
-        if s, _ := g.literalCFG(node); s != nil { g.productions = append(g.productions, Production{ left, []Symbol { s } }) }
-    }
 }
 
 // Converts a given literal node from the AST to a CFG symbol.
@@ -168,7 +175,7 @@ func (g *GrammarGenerator) literalCFG(expression AST) (Symbol, bool) {
 
 // Removes simple precedence and associativity operator-form ambiguities in the grammar.
 // Not guaranteed to remove all ambiguities, but will resolve those of infix, prefix, and postfix operations.
-func (g *GrammarGenerator) removeAmbiguities() {
+func (g *GrammarGenerator) removeOperatorAmbiguities() {
     type AmbiguityType uint
     type Ambiguity struct { t AmbiguityType; production Production }
     const (NONE AmbiguityType = iota; INFIX; PREFIX; POSTFIX)
@@ -280,7 +287,7 @@ func (p Production)  String() string {
 // FOR DEBUG PURPOSES:
 // Prints all production rules of the grammar.
 func (g *Grammar) PrintGrammar() {
-    fmt.Printf("start: %s\n", g.Start)
+    fmt.Printf("[start: %s]\n", g.Start)
     for _, production := range g.Productions { fmt.Println(production) }
 }
 
