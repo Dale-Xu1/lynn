@@ -7,6 +7,7 @@ rule stmt
 
 rule expr
     : expr "|" expr
+    | expr ("#" IDENTIFIER | LEFT | RIGHT)
     | expr expr
     | expr ("+" | "*" | "?")
     | "(" expr ")"
@@ -29,14 +30,16 @@ token COMMENT    : "//" .* [\n\r\0] | "/*" ("*" [^/] | [^*])* "*/" -> skip ;
 token RULE       : "rule" ;
 token TOKEN      : "token" ;
 token FRAGMENT   : "fragment" ;
+token LEFT       : "left" ;
+token RIGHT      : "right" ;
 token SKIP       : "skip" ;
 
-token EQUAL      : "=" ;
 token PLUS       : "+" ;
 token STAR       : "*" ;
 token QUESTION   : "?" ;
 token DOT        : "." ;
 token BAR        : "|" ;
+token HASH       : "#" ;
 token SEMI       : ";" ;
 token COLON      : ":" ;
 token L_PAREN    : "(" ;

@@ -31,6 +31,6 @@ func main() {
     fmt.Println("== parse table ==")
     table.PrintTable()
 
-    p := lynn.NewShiftReduceParser(table)
-    p.Parse()
+    // p := lynn.NewShiftReduceParser(table)
+    // p.Parse()
 }

@@ -81,10 +81,9 @@ func (g *GrammarGenerator) GenerateCFG(grammar *GrammarNode) *Grammar {
         t := NonTerminal(rule.Identifier.Name); 
         g.expressionCFG(t, rule.Expression)
     }
-    start := g.simplifyGrammar()
     g.removeAmbiguities()
     // Collect accumulated data into grammar struct
-    return &Grammar { terminals, g.nonTerminals, start, g.productions }
+    return &Grammar { terminals, g.nonTerminals, g.nonTerminals[0], g.productions }
 }
 
 // For a given expression node from the AST, adds to a list of productions in CFG format.
@@ -100,111 +99,72 @@ func (g *GrammarGenerator) expressionCFG(left NonTerminal, expression AST) {
     // For each case, flatten concatenated nodes to obtain symbols of each production
     // Same procedure as finding all nodes reachable through unions, but for concatenations
     for _, c := range cases {
-        var nodes []AST
-        if n, ok := c.(*ConcatenationNode); ok {
-            nodes = flattenConcatenation(n, make([]AST, 0))
-        } else {
-            nodes = []AST { c }
-        }
+        n, ok := c.(*ConcatenationNode)
+        if !ok { g.symbolCFG(left, c); continue }
         // Convert nodes in list to symbols
+        nodes := flattenConcatenation(n, make([]AST, 0))
         symbols := make([]Symbol, 0, len(nodes))
         for _, n := range nodes {
-            symbol := g.symbolCFG(left, n)
-            if symbol != nil { symbols = append(symbols, symbol) }
+            s := g.expandCFG(left, n)
+            if s != nil { symbols = append(symbols, s) }
         }
         g.productions = append(g.productions, Production { left, symbols })
     }
 }
 
+func (g *GrammarGenerator) expandCFG(left NonTerminal, expression AST) Symbol {
+    // For literals, convert and return terminal directly, otherwise create new non-terminal and expand expression
+    s, ok := g.literalCFG(expression); if ok { return s }
+    t := g.deriveNonTerminal(left)
+    g.symbolCFG(t, expression)
+    return t
+}
+
 // Converts a given expression node from the AST to a CFG symbol.
-func (g *GrammarGenerator) symbolCFG(left NonTerminal, expression AST) Symbol {
+func (g *GrammarGenerator) symbolCFG(left NonTerminal, expression AST) {
     switch node := expression.(type) {
     case *OptionNode:
-        // Create new non-terminal with possible productions including an epsilon production
-        t := g.deriveNonTerminal(left)
-        g.expressionCFG(t, node.Expression)
-        g.productions = append(g.productions, Production { t, []Symbol { } })
-        return t
+        // Create production including an epsilon production
+        g.expressionCFG(left, node.Expression)
+        g.productions = append(g.productions, Production { left, []Symbol { } })
     case *RepeatNode:
-        // Two new non-terminals are created for repetitions:
         // E_0 -> E_0 E_1 (E_1 can be repeated 0 or more times)
         // E_0 -> epsilon
-        t1, t2 := g.deriveNonTerminal(left), g.deriveNonTerminal(left)
-        g.productions = append(g.productions, Production { t1, []Symbol { t1, t2 } }, Production { t1, []Symbol { } })
-        g.expressionCFG(t2, node.Expression)
-        return t1
+        t := g.expandCFG(left, node.Expression)
+        g.productions = append(g.productions, Production { left, []Symbol { left, t } }, Production { left, []Symbol { } })
     case *RepeatOneNode:
         // E_0 -> E_0 E_1
         // E_0 -> E_1 (E_1 can be repeated 1 or more times)
-        t1, t2 := g.deriveNonTerminal(left), g.deriveNonTerminal(left)
-        g.productions = append(g.productions, Production { t1, []Symbol { t1, t2 } }, Production { t1, []Symbol { t2 } })
-        g.expressionCFG(t2, node.Expression)
-        return t1
-    case *UnionNode:
-        // Separate inner union to new non-terminal
-        t := g.deriveNonTerminal(left)
-        g.expressionCFG(t, node)
-        return t
+        t := g.expandCFG(left, node.Expression)
+        g.productions = append(g.productions, Production { left, []Symbol { left, t } }, Production { left, []Symbol { t } })
+    case *UnionNode: g.expressionCFG(left, node)
+    default:
+        if s, _ := g.literalCFG(node); s != nil { g.productions = append(g.productions, Production{ left, []Symbol { s } }) }
+    }
+}
 
+// Converts a given literal node from the AST to a CFG symbol.
+func (g *GrammarGenerator) literalCFG(expression AST) (Symbol, bool) {
+    switch node := expression.(type) {
     case *IdentifierNode:
         // Finds the terminal or non-terminal that the identifier is referring to
-        if _, ok := g.terminals[node.Name];      ok { return Terminal(node.Name) }
-        if _, ok := g.nonTerminalMap[node.Name]; ok { return NonTerminal(node.Name) }
+        if _, ok := g.terminals[node.Name];      ok { return Terminal(node.Name), true }
+        if _, ok := g.nonTerminalMap[node.Name]; ok { return NonTerminal(node.Name), true }
         fmt.Printf("Generation error: Identifier \"%s\" is not defined - %d:%d\n", node.Name, node.Location.Line, node.Location.Col)
-        return nil
     case *StringNode:
         // Find terminal associated with a string, resolves if explicit string definition exists in AST
         str := string(node.Chars); 
-        if t, ok := g.strings[str]; ok { return t }
+        if t, ok := g.strings[str]; ok { return t, true }
         fmt.Printf("Generation error: No token explicitly matches \"%s\" - %d:%d\n", str, node.Location.Line, node.Location.Col)
-        return nil
     case *ClassNode:
         fmt.Printf("Generation error: Classes can not be used in rule expressions - %d:%d\n", node.Location.Line, node.Location.Col)
-        return nil
-    default: panic("Invalid expression passed to GrammarGenerator.symbolCFG()")
+    default: return nil, false
     }
+    return nil, true
 }
 
-// Removes non-terminals when there exists a production asserting equality between two non-terminals.
-func (g *GrammarGenerator) simplifyGrammar() NonTerminal {
-    // Group productions together based on their non-terminal
-    productions := make(map[NonTerminal][]Production, len(g.nonTerminals))
-    for _, p := range g.productions { productions[p.Left] = append(productions[p.Left], p) }
-    // Generate replacement map for equivalent non-terminals
-    // A non-terminal is only equivalent if there exists a non-terminal whose only production is N_1 -> N_2
-    replacement := make(map[NonTerminal]NonTerminal)
-    for nt, group := range productions {
-        if _, ok := replacement[nt]; ok || len(group) > 1 { continue }
-        p := group[0]; if len(p.Right) != 1 { continue }
-        if t, ok := p.Right[0].(NonTerminal); ok { replacement[nt] = t }
-    }
-    // Replace occurrences according to map
-    simplified := make([]Production, 0)
-    for _, p := range g.productions {
-        if _, ok := replacement[p.Left]; ok { continue }
-        // Create modified copy of production
-        right := make([]Symbol, len(p.Right))
-        for i, s := range p.Right {
-            if t, ok := s.(NonTerminal); ok {
-                if r, ok := replacement[t]; ok { right[i] = r; continue }
-            }
-            right[i] = s
-        }
-        simplified = append(simplified, Production { p.Left, right })
-    }
-    // Collect non-terminals that have not been replaced
-    start := g.nonTerminals[0]
-    nonTerminals := make([]NonTerminal, 0, len(g.nonTerminals))
-    for _, t := range g.nonTerminals {
-        if _, ok := replacement[t]; !ok { nonTerminals = append(nonTerminals, t) }
-    }
-    g.nonTerminals = nonTerminals
-    g.productions = simplified
-    if r, ok := replacement[start]; ok { return r }
-    return start
-}
-
-// TODO: Allow grammar to specify associativity, further generalization (dangling-else ambiguity?)
+// TODO: Allow grammar to specify associativity and callback name
+// TODO: Further generalization (dangling-else ambiguity?)
 
 // Removes simple precedence and associativity operator-form ambiguities in the grammar.
 // Not guaranteed to remove all ambiguities, but will resolve those of infix, prefix, and postfix operations.
@@ -306,7 +266,7 @@ func flattenUnion(node *UnionNode, nodes []AST) []AST {
 
 func (t Terminal)    String() string { return string(t) }
 func (t NonTerminal) String() string { return string(t) }
-func (p Production) String() string {
+func (p Production)  String() string {
     var builder strings.Builder
     builder.WriteString(fmt.Sprintf("%s ->", p.Left))
     if len(p.Right) > 0 {
