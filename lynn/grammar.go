@@ -20,8 +20,15 @@ type Grammar struct {
     Start        NonTerminal
     Productions  []Production
 }
+// ProductionType type enum. Either NORMAL or AUXILIARY
+type ProductionType uint
+const (NORMAL ProductionType = iota; AUXILIARY)
 // Production struct. Expresses a sequence of symbols that a given non-terminal may be expanded to in a grammar.
-type Production struct { Left NonTerminal; Right []Symbol }
+type Production struct {
+    Type  ProductionType
+    Left  NonTerminal
+    Right []Symbol
+}
 
 // Lexer generator struct. Converts EBNF rule definitions to context-free grammar (CFG) production rules.
 type GrammarGenerator struct {
@@ -93,25 +100,37 @@ func (g *GrammarGenerator) expressionCFG(left NonTerminal, expression AST) {
     case *OptionNode:
         // Create production including an epsilon production
         g.expressionCFG(left, node.Expression)
-        g.productions = append(g.productions, Production { left, []Symbol { } })
+        g.productions = append(g.productions, Production { NORMAL, left, []Symbol { } })
     case *RepeatNode:
         // E -> E E' (E' can be repeated 0 or more times)
         // E -> epsilon
         t := g.expandExpressionCFG(left, node.Expression)
-        g.productions = append(g.productions, Production { left, []Symbol { left, t } }, Production { left, []Symbol { } })
+        g.productions = append(g.productions,
+            Production { NORMAL, left, []Symbol { left, t } }, Production { NORMAL, left, []Symbol { } })
     case *RepeatOneNode:
         // E -> E E'
         // E -> E' (E' can be repeated 1 or more times)
         t := g.expandExpressionCFG(left, node.Expression)
-        g.productions = append(g.productions, Production { left, []Symbol { left, t } }, Production { left, []Symbol { t } })
+        g.productions = append(g.productions,
+            Production { NORMAL, left, []Symbol { left, t } }, Production { NORMAL, left, []Symbol { t } })
     case *ConcatenationNode: g.flattenExpressionCFG(left, node)
     case *UnionNode:         g.flattenExpressionCFG(left, node)
     default:
         s, ok := g.literalCFG(node)
         if s != nil {
-            g.productions = append(g.productions, Production{ left, []Symbol { s } })
+            g.productions = append(g.productions, Production{ NORMAL, left, []Symbol { s } })
         } else if !ok { panic("Invalid expression node passed to GrammarGenerator.symbolCFG()") }
     }
+}
+
+// Determines whether or not parts of an expression needs to be expanded to a new non-terminal.
+func (g *GrammarGenerator) expandExpressionCFG(left NonTerminal, expression AST) Symbol {
+    // For literals, convert and return terminal directly
+    s, ok := g.literalCFG(expression); if ok { return s }
+    // Otherwise, create new non-terminal and expand expression
+    t := g.deriveNonTerminal(left)
+    g.expressionCFG(t, expression)
+    return t
 }
 
 // For a given expression node from the AST, adds to a list of productions in CFG format.
@@ -136,18 +155,8 @@ func (g *GrammarGenerator) flattenExpressionCFG(left NonTerminal, expression AST
             s := g.expandExpressionCFG(left, n)
             if s != nil { symbols = append(symbols, s) }
         }
-        g.productions = append(g.productions, Production { left, symbols })
+        g.productions = append(g.productions, Production { NORMAL, left, symbols })
     }
-}
-
-// Determines whether or not parts of an expression needs to be expanded to a new non-terminal.
-func (g *GrammarGenerator) expandExpressionCFG(left NonTerminal, expression AST) Symbol {
-    // For literals, convert and return terminal directly
-    s, ok := g.literalCFG(expression); if ok { return s }
-    // Otherwise, create new non-terminal and expand expression
-    t := g.deriveNonTerminal(left)
-    g.expressionCFG(t, expression)
-    return t
 }
 
 // Converts a given literal node from the AST to a CFG symbol.
@@ -177,8 +186,8 @@ func (g *GrammarGenerator) literalCFG(expression AST) (Symbol, bool) {
 // Not guaranteed to remove all ambiguities, but will resolve those of infix, prefix, and postfix operations.
 func (g *GrammarGenerator) removeOperatorAmbiguities() {
     type AmbiguityType uint
-    type Ambiguity struct { t AmbiguityType; production Production }
     const (NONE AmbiguityType = iota; INFIX; PREFIX; POSTFIX)
+    type Ambiguity struct { t AmbiguityType; production Production }
     // Group productions together based on their non-terminal
     productions := make(map[NonTerminal][]Production, len(g.nonTerminals))
     modified := make([]Production, 0, len(g.productions))
@@ -200,6 +209,11 @@ func (g *GrammarGenerator) removeOperatorAmbiguities() {
             }
             rest = append(rest, p)
         }
+        // At least one non-operation production must exist to perform disambiguation
+        if len(rest) == 0 {
+            for _, m := range a { modified = append(modified, m.production) }
+            continue
+        }
         // Divide non-terminal productions into multiple precedence levels
         left := nt
         for i, m := range a {
@@ -207,9 +221,9 @@ func (g *GrammarGenerator) removeOperatorAmbiguities() {
             // Don't generate new non-terminal when last precedence level is a prefix or postfix operator
             next := left
             if m.t == INFIX || i < len(a) - 1 { next = g.deriveNonTerminal(nt) }
-            // Create modified copy of production
-            right := make([]Symbol, len(m.production.Right)); copy(right, m.production.Right)
-            modified = append(modified, Production { left, right })
+            // Modify existing productions
+            right := m.production.Right
+            modified = append(modified, Production { NORMAL, left, right })
             switch m.t {
             case INFIX:
                 // For infix ambiguity, eliminate either left or right-recursion to force associativity
@@ -220,15 +234,69 @@ func (g *GrammarGenerator) removeOperatorAmbiguities() {
             case POSTFIX: right[0] = left
             }
             if next != left {
-                modified = append(modified, Production { left, []Symbol { next } })
+                modified = append(modified, Production { AUXILIARY, left, []Symbol { next } })
                 left = next
             }
         }
         // Add all non-operation productions to highest precedence level non-terminal
-        for _, p := range rest { modified = append(modified, Production { left, p.Right }) }
+        for _, p := range rest { modified = append(modified, Production { NORMAL, left, p.Right }) }
     }
     g.productions = modified
 }
+
+// // Removes non-terminals when there exists a production asserting equality between two non-terminals.
+// func (g *GrammarGenerator) simplifyGrammar() NonTerminal {
+//     // Group productions together based on their non-terminal
+//     productions := make(map[NonTerminal][]Production, len(g.nonTerminals))
+//     for _, p := range g.productions { productions[p.Left] = append(productions[p.Left], p) }
+//     // Generate replacement map for equivalent non-terminals
+//     // A non-terminal is only equivalent if there exists a non-terminal whose only production is N_1 -> N_2
+//     parents, replacement := make(map[NonTerminal]NonTerminal), make(map[NonTerminal]NonTerminal)
+//     for nt, group := range productions {
+//         p := group[0]
+//         if len(group) != 1 || len(p.Right) != 1 { continue }
+//         if t, ok := p.Right[0].(NonTerminal); ok && p.Type == AUXILIARY && nt != t { parents[nt] = t }
+//     }
+//     for nt := range parents {
+//         if _, ok := replacement[nt]; ok { continue }
+//         path, visited := make([]NonTerminal, 0), make(map[NonTerminal]struct{})
+//         r := nt
+//         for {
+//             // Follow parent trail until a non-terminal without a parent is found and choose it as the root
+//             t, ok := parents[r]; if !ok { break }
+//             if _, ok := visited[t]; ok {
+//                 // If a cycle is detected (parent of current non-terminal was already visited),
+//                 // current non-terminal is chosen as root
+//                 delete(parents, r)
+//                 break
+//             }
+//             path = append(path, r); visited[r] = struct{}{}
+//             r = t
+//         }
+//         // Given representative root for path, set all non-terminals to be replaced by root
+//         for _, t := range path { replacement[t] = r }
+//     }
+//     // Replace occurrences according to map
+//     simplified := make([]Production, 0)
+//     for _, p := range g.productions {
+//         if _, ok := replacement[p.Left]; ok { continue }
+//         simplified = append(simplified, p)
+//         for i, s := range p.Right {
+//             t, ok := s.(NonTerminal); if !ok { continue }
+//             if r, ok := replacement[t]; ok { p.Right[i] = r }
+//         }
+//     }
+//     // Collect non-terminals that have not been replaced
+//     start := g.nonTerminals[0]
+//     nonTerminals := make([]NonTerminal, 0, len(g.nonTerminals))
+//     for _, t := range g.nonTerminals {
+//         if _, ok := replacement[t]; !ok { nonTerminals = append(nonTerminals, t) }
+//     }
+//     g.nonTerminals = nonTerminals
+//     g.productions = simplified
+//     if r, ok := replacement[start]; ok { return r }
+//     return start
+// }
 
 // Creates a new non-terminal derived from a parent non-terminal.
 func (g *GrammarGenerator) deriveNonTerminal(nt NonTerminal) NonTerminal {
@@ -253,7 +321,7 @@ func (g *GrammarGenerator) deriveNonTerminal(nt NonTerminal) NonTerminal {
 func (g *Grammar) Augment() *Production {
     t := NonTerminal("S'")
     g.NonTerminals = append(g.NonTerminals, t)
-    g.Productions = append(g.Productions, Production { t, []Symbol { g.Start } })
+    g.Productions = append(g.Productions, Production { NORMAL, t, []Symbol { g.Start } })
     return &g.Productions[len(g.Productions) - 1]
 }
 

@@ -1,17 +1,25 @@
 rule grammar : stmt* ;
 rule stmt
-    : RULE IDENTIFIER ":" expr ";"
-    | TOKEN IDENTIFIER ":" expr ("->" SKIP)? ";"
-    | FRAGMENT IDENTIFIER ":" expr ";"
+    : RULE     IDENTIFIER ":" ruleExpr ("|" ruleExpr)* ";"
+    | TOKEN    IDENTIFIER ":" exprGroup ("->" SKIP)? ";"
+    | FRAGMENT IDENTIFIER ":" exprGroup ";"
+    ;
+
+rule ruleExpr : expr (LEFT | RIGHT)? ("#" IDENTIFIER)? ;
+rule exprGroup
+    : exprGroup "|" exprGroup
+    | expr
     ;
 
 rule expr
-    : expr "|" expr
-    | expr ("#" IDENTIFIER | LEFT | RIGHT)
-    | expr expr
+    : expr expr
+    | IDENTIFIER "=" expr
     | expr ("+" | "*" | "?")
-    | "(" expr ")"
-    | IDENTIFIER | STRING | CLASS | "."
+    | "(" exprGroup ")"
+    | IDENTIFIER
+    | STRING
+    | CLASS
+    | "."
     ;
 
 /*
@@ -34,6 +42,7 @@ token LEFT       : "left" ;
 token RIGHT      : "right" ;
 token SKIP       : "skip" ;
 
+token EQUAL      : "=" ;
 token PLUS       : "+" ;
 token STAR       : "*" ;
 token QUESTION   : "?" ;
