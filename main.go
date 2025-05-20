@@ -28,9 +28,9 @@ func main() {
     grammar.PrintGrammar()
     fmt.Println()
     table := lynn.NewLALRParserGenerator().Generate(grammar)
-    fmt.Println("== parse table ==")
-    table.PrintTable()
+    // fmt.Println("== parse table ==")
+    // table.PrintTable()
 
-    // p := lynn.NewShiftReduceParser(table)
-    // p.Parse()
+    p := lynn.NewShiftReduceParser(table)
+    fmt.Println(p.Parse().String(""))
 }

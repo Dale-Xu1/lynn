@@ -20,9 +20,12 @@ type Grammar struct {
     Start        NonTerminal
     Productions  []Production
 }
-// ProductionType type enum. Either NORMAL or AUXILIARY
+// ProductionType type enum. Either NORMAL, AUXILIARY, OR NIL.
+// Auxiliary productions must have a right-hand side with a single non-terminal.
+// Flatten productions must follow the form E -> E E_0.
+// Nil productions must have a length of 0 (epsilon productions).
 type ProductionType uint
-const (NORMAL ProductionType = iota; AUXILIARY)
+const (NORMAL ProductionType = iota; AUXILIARY; FLATTEN; NIL)
 // Production struct. Expresses a sequence of symbols that a given non-terminal may be expanded to in a grammar.
 type Production struct {
     Type  ProductionType
@@ -100,19 +103,19 @@ func (g *GrammarGenerator) expressionCFG(left NonTerminal, expression AST) {
     case *OptionNode:
         // Create production including an epsilon production
         g.expressionCFG(left, node.Expression)
-        g.productions = append(g.productions, Production { NORMAL, left, []Symbol { } })
+        g.productions = append(g.productions, Production { NIL, left, []Symbol { } })
     case *RepeatNode:
         // E -> E E' (E' can be repeated 0 or more times)
         // E -> epsilon
         t := g.expandExpressionCFG(left, node.Expression)
         g.productions = append(g.productions,
-            Production { NORMAL, left, []Symbol { left, t } }, Production { NORMAL, left, []Symbol { } })
+            Production { FLATTEN, left, []Symbol { left, t } }, Production { NIL, left, []Symbol { } })
     case *RepeatOneNode:
         // E -> E E'
         // E -> E' (E' can be repeated 1 or more times)
         t := g.expandExpressionCFG(left, node.Expression)
         g.productions = append(g.productions,
-            Production { NORMAL, left, []Symbol { left, t } }, Production { NORMAL, left, []Symbol { t } })
+            Production { FLATTEN, left, []Symbol { left, t } }, Production { NORMAL, left, []Symbol { t } })
     case *ConcatenationNode: g.flattenExpressionCFG(left, node)
     case *UnionNode:         g.flattenExpressionCFG(left, node)
     default:
@@ -223,7 +226,7 @@ func (g *GrammarGenerator) removeOperatorAmbiguities() {
             if m.t == INFIX || i < len(a) - 1 { next = g.deriveNonTerminal(nt) }
             // Modify existing productions
             right := m.production.Right
-            modified = append(modified, Production { NORMAL, left, right })
+            modified = append(modified, Production { m.production.Type, left, right })
             switch m.t {
             case INFIX:
                 // For infix ambiguity, eliminate either left or right-recursion to force associativity
@@ -239,64 +242,10 @@ func (g *GrammarGenerator) removeOperatorAmbiguities() {
             }
         }
         // Add all non-operation productions to highest precedence level non-terminal
-        for _, p := range rest { modified = append(modified, Production { NORMAL, left, p.Right }) }
+        for _, p := range rest { modified = append(modified, Production { p.Type, left, p.Right }) }
     }
     g.productions = modified
 }
-
-// // Removes non-terminals when there exists a production asserting equality between two non-terminals.
-// func (g *GrammarGenerator) simplifyGrammar() NonTerminal {
-//     // Group productions together based on their non-terminal
-//     productions := make(map[NonTerminal][]Production, len(g.nonTerminals))
-//     for _, p := range g.productions { productions[p.Left] = append(productions[p.Left], p) }
-//     // Generate replacement map for equivalent non-terminals
-//     // A non-terminal is only equivalent if there exists a non-terminal whose only production is N_1 -> N_2
-//     parents, replacement := make(map[NonTerminal]NonTerminal), make(map[NonTerminal]NonTerminal)
-//     for nt, group := range productions {
-//         p := group[0]
-//         if len(group) != 1 || len(p.Right) != 1 { continue }
-//         if t, ok := p.Right[0].(NonTerminal); ok && p.Type == AUXILIARY && nt != t { parents[nt] = t }
-//     }
-//     for nt := range parents {
-//         if _, ok := replacement[nt]; ok { continue }
-//         path, visited := make([]NonTerminal, 0), make(map[NonTerminal]struct{})
-//         r := nt
-//         for {
-//             // Follow parent trail until a non-terminal without a parent is found and choose it as the root
-//             t, ok := parents[r]; if !ok { break }
-//             if _, ok := visited[t]; ok {
-//                 // If a cycle is detected (parent of current non-terminal was already visited),
-//                 // current non-terminal is chosen as root
-//                 delete(parents, r)
-//                 break
-//             }
-//             path = append(path, r); visited[r] = struct{}{}
-//             r = t
-//         }
-//         // Given representative root for path, set all non-terminals to be replaced by root
-//         for _, t := range path { replacement[t] = r }
-//     }
-//     // Replace occurrences according to map
-//     simplified := make([]Production, 0)
-//     for _, p := range g.productions {
-//         if _, ok := replacement[p.Left]; ok { continue }
-//         simplified = append(simplified, p)
-//         for i, s := range p.Right {
-//             t, ok := s.(NonTerminal); if !ok { continue }
-//             if r, ok := replacement[t]; ok { p.Right[i] = r }
-//         }
-//     }
-//     // Collect non-terminals that have not been replaced
-//     start := g.nonTerminals[0]
-//     nonTerminals := make([]NonTerminal, 0, len(g.nonTerminals))
-//     for _, t := range g.nonTerminals {
-//         if _, ok := replacement[t]; !ok { nonTerminals = append(nonTerminals, t) }
-//     }
-//     g.nonTerminals = nonTerminals
-//     g.productions = simplified
-//     if r, ok := replacement[start]; ok { return r }
-//     return start
-// }
 
 // Creates a new non-terminal derived from a parent non-terminal.
 func (g *GrammarGenerator) deriveNonTerminal(nt NonTerminal) NonTerminal {
@@ -360,8 +309,6 @@ func (g *Grammar) PrintGrammar() {
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------
-// TODO: When generating parse tree, remove auxiliary non-terminals (production type metadata)
-// TODO: Print parse trees
 // TODO: Compile to generated parser program
 
 type ShiftReduceParser struct {
@@ -380,7 +327,7 @@ type ParseTreeNode struct {
 
 func NewShiftReduceParser(table LRParseTable) *ShiftReduceParser { return &ShiftReduceParser { table } }
 func (p *ShiftReduceParser) Parse() *ParseTreeNode {
-    input := []Terminal { "TOKEN", "IDENTIFIER", "COLON", "STRING", "CLASS", "BAR", "IDENTIFIER", "PLUS", "SEMI", "RULE", "IDENTIFIER", "COLON", "L_PAREN", "IDENTIFIER", "R_PAREN", "QUESTION", "SEMI", EOF_TERMINAL }
+    input := []Terminal { "TOKEN", "IDENTIFIER", "COLON", "STRING", "CLASS", "HASH", "IDENTIFIER", "BAR", "IDENTIFIER", "PLUS", "SEMI", "RULE", "IDENTIFIER", "COLON", "L_PAREN", "IDENTIFIER", "R_PAREN", "QUESTION", "SEMI", EOF_TERMINAL }
     ip := 0
     stack := []StackState { { 0, nil } }
     for {
@@ -400,18 +347,47 @@ func (p *ShiftReduceParser) Parse() *ParseTreeNode {
         case REDUCE:
             // Find production to reduce by
             production := p.table.Grammar.Productions[action.Value]
-            r := len(production.Right); l := len(stack) - r
-            // Collect child nodes from current states on the stack and create node for reduction
-            children := make([]*ParseTreeNode, r)
-            for i, s := range stack[l:] { children[i] = s.Node }
-            node := &ParseTreeNode { production.Left, children }
-            // Pop stack and find next state based on goto table
-            stack = stack[:l]; state := stack[l - 1].State
+            var node *ParseTreeNode
+            switch production.Type {
+            case NORMAL:
+                r := len(production.Right); l := len(stack) - r
+                // Collect child nodes from current states on the stack and create node for reduction
+                children := make([]*ParseTreeNode, r)
+                for i, s := range stack[l:] { children[i] = s.Node }
+                node = &ParseTreeNode { production.Left, children }
+                stack = stack[:l]
+            case FLATTEN:
+                l := len(stack) - 2
+                node = stack[l].Node; element := stack[l + 1].Node
+                if node == nil {
+                    node = &ParseTreeNode { production.Left, []*ParseTreeNode { element } }
+                } else {
+                    node.Children = append(node.Children, element)
+                }
+                stack = stack[:l]
+            case AUXILIARY:
+                l := len(stack) - 1
+                node = stack[l].Node; stack = stack[:l]
+            case NIL: node = nil
+            }
+            // Find next state based on goto table
+            state := stack[len(stack) - 1].State
             next := p.table.Goto[state][production.Left]
             stack = append(stack, StackState { next, node })
-        case ACCEPT:
-            fmt.Println("accept")
-            return stack[1].Node
+        case ACCEPT: return stack[1].Node
         }
+    }
+}
+
+func (n *ParseTreeNode) String(indent string) string {
+    if n == nil { return "nil" }
+    switch n.Symbol.(type) {
+    case Terminal: return n.Symbol.String()
+    case NonTerminal:
+        children := make([]string, len(n.Children))
+        next := indent + "  "
+        for i, c := range n.Children { children[i] = fmt.Sprintf("\n%s%s", next, c.String(next)) }
+        return fmt.Sprintf("%s:%s", n.Symbol, strings.Join(children, ""))
+    default: panic("Invalid parse tree node symbol")
     }
 }
