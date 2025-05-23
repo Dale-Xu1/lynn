@@ -1,6 +1,6 @@
 rule grammar : stmt* ;
 rule stmt
-    : RULE     IDENTIFIER ":" expr ";"
+    : RULE     IDENTIFIER ":" expr ";"               #ruleStmt
     | TOKEN    IDENTIFIER ":" expr ("->" SKIP)? ";"
     | FRAGMENT IDENTIFIER ":" expr ";"
     ;
@@ -9,6 +9,7 @@ rule expr
     : expr "|" expr
     | expr "#" IDENTIFIER (LEFT | RIGHT)?
     | expr expr
+    | IDENTIFIER "=" expr
     | expr ("+" | "*" | "?")
     | "(" expr ")"
     | IDENTIFIER
@@ -16,16 +17,6 @@ rule expr
     | CLASS
     | "."
     ;
-
-/*
-rule expr
-    : IF expr ELSE?
-    | IDENTIFIER
-    ;
-
-token IF   : "if" ;
-token ELSE : "else" ;
-*/
 
 token WHITESPACE : [ \t\n\r]+ -> skip ;
 token COMMENT    : "//" .* [\n\r\0] | "/*" ("*" [^/] | [^*])* "*/" -> skip ;

@@ -117,7 +117,7 @@ func (g *LexerGenerator) expressionNFA(expression AST) (LNFAFragment, bool) {
         nfa.Out.AddEpsilon(nfa.In, out)
         return LNFAFragment { in, out }, true
 
-    case *ConcatenationNode:
+    case *ConcatNode:
         a, ok := g.expressionNFA(node.A); if !ok { return a, ok }
         b, ok := g.expressionNFA(node.B); if !ok { return b, ok }
         // Create epsilon transition between two fragments
@@ -167,6 +167,9 @@ func (g *LexerGenerator) expressionNFA(expression AST) (LNFAFragment, bool) {
             g.ranges[r] = struct{}{}
         }
         return LNFAFragment { in, out }, true
+    case *LabelNode:
+        fmt.Printf("Generation error: Labels cannot be used in token expressions - %d:%d\n", node.Location.Line, node.Location.Col)
+        return LNFAFragment { }, false
     default: panic("Invalid expression passed to LexerGenerator.expressionNFA()")
     }
 }

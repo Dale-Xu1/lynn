@@ -20,7 +20,7 @@ type Grammar struct {
     Start        NonTerminal
     Productions  []Production
 }
-// ProductionType type enum. Either NORMAL, AUXILIARY, OR NIL.
+// Production type enum. Either NORMAL, AUXILIARY, OR NIL.
 // Auxiliary productions must have a right-hand side with a single non-terminal.
 // Flatten productions must follow the form E -> E E_0.
 // Nil productions must have a length of 0 (epsilon productions).
@@ -89,12 +89,39 @@ func (g *GrammarGenerator) GenerateCFG(grammar *GrammarNode) *Grammar {
     // Convert AST expression to grammar
     g.productions = make([]Production, 0)
     for _, rule := range grammar.Rules {
-        t := NonTerminal(rule.Identifier.Name); 
-        g.expressionCFG(t, rule.Expression)
+        t := NonTerminal(rule.Identifier.Name)
+        g.flattenProductions(t, rule.Expression)
     }
-    g.removeOperatorAmbiguities()
+    g.removeAmbiguities()
     // Collect accumulated data into grammar struct
     return &Grammar { terminals, g.nonTerminals, g.nonTerminals[0], g.productions }
+}
+
+// TODO: Consider label
+// For a given expression node from the AST, adds to a list of productions in CFG format.
+func (g *GrammarGenerator) flattenProductions(left NonTerminal, expression AST) {
+    // Find all production cases for a given non-terminal by obtaining leaf nodes in a union
+    var cases []AST
+    if n, ok := expression.(*UnionNode); ok {
+        // Recursively find all nodes reachable through only union nodes
+        cases = flattenUnion(n, make([]AST, 0))
+    } else {
+        // Do not generate new non-terminal in any subsequent constructs if the sole production is not concatenated
+        if _, ok := expression.(*ConcatNode); !ok {
+            g.expressionCFG(left, expression)
+            return
+        }
+        cases = []AST { expression }
+    }
+    // For each case, flatten concatenated nodes
+    for _, c := range cases {
+        if node, ok := c.(*ConcatNode); ok {
+            g.flattenConcatCFG(left, node)
+        } else if s := g.expandExpressionCFG(left, c); s != nil {
+            // For unions of multiple productions, ensure option/repeat constructs are given separate non-terminals
+            g.productions = append(g.productions, Production { NORMAL, left, []Symbol { s } })
+        }
+    }
 }
 
 // Converts a given expression node from the AST to its corresponding CFG structure.
@@ -107,17 +134,20 @@ func (g *GrammarGenerator) expressionCFG(left NonTerminal, expression AST) {
     case *RepeatNode:
         // E -> E E' (E' can be repeated 0 or more times)
         // E -> epsilon
-        t := g.expandExpressionCFG(left, node.Expression)
-        g.productions = append(g.productions,
-            Production { FLATTEN, left, []Symbol { left, t } }, Production { NIL, left, []Symbol { } })
+        if t := g.expandExpressionCFG(left, node.Expression); t != nil {
+            g.productions = append(g.productions,
+                Production { FLATTEN, left, []Symbol { left, t } }, Production { NIL, left, []Symbol { } })
+        }
     case *RepeatOneNode:
         // E -> E E'
         // E -> E' (E' can be repeated 1 or more times)
-        t := g.expandExpressionCFG(left, node.Expression)
-        g.productions = append(g.productions,
-            Production { FLATTEN, left, []Symbol { left, t } }, Production { NORMAL, left, []Symbol { t } })
-    case *ConcatenationNode: g.flattenExpressionCFG(left, node)
-    case *UnionNode:         g.flattenExpressionCFG(left, node)
+        if t := g.expandExpressionCFG(left, node.Expression); t != nil {
+            g.productions = append(g.productions,
+                Production { FLATTEN, left, []Symbol { left, t } }, Production { NORMAL, left, []Symbol { t } })
+        }
+    // New non-terminals are auxiliary when production is for a non-derived non-terminal
+    case *ConcatNode: g.flattenConcatCFG(left, node)
+    case *UnionNode:  g.flattenUnionCFG(left, node)
     default:
         s, ok := g.literalCFG(node)
         if s != nil {
@@ -136,30 +166,32 @@ func (g *GrammarGenerator) expandExpressionCFG(left NonTerminal, expression AST)
     return t
 }
 
-// For a given expression node from the AST, adds to a list of productions in CFG format.
-func (g *GrammarGenerator) flattenExpressionCFG(left NonTerminal, expression AST) {
+// For a given set of nodes in a union from the AST, adds to a list of productions in CFG format.
+func (g *GrammarGenerator) flattenUnionCFG(left NonTerminal, node *UnionNode) {
     // Find all production cases for a given non-terminal by obtaining leaf nodes in a union
-    var cases []AST
-    if n, ok := expression.(*UnionNode); ok {
-        // Recursively find all nodes reachable through only union nodes
-        cases = flattenUnion(n, make([]AST, 0))
-    } else {
-        cases = []AST { expression }
-    }
-    // For each case, flatten concatenated nodes to obtain symbols of each production
-    // Same procedure as finding all nodes reachable through unions, but for concatenations
+    cases := flattenUnion(node, make([]AST, 0))
+    // For each case, flatten concatenated nodes
     for _, c := range cases {
-        n, ok := c.(*ConcatenationNode)
-        if !ok { g.expressionCFG(left, c); continue }
-        // Convert nodes in list to symbols
-        nodes := flattenConcatenation(n, make([]AST, 0))
-        symbols := make([]Symbol, 0, len(nodes))
-        for _, n := range nodes {
-            s := g.expandExpressionCFG(left, n)
-            if s != nil { symbols = append(symbols, s) }
+        if node, ok := c.(*ConcatNode); ok {
+            g.flattenConcatCFG(left, node)
+        } else if s := g.expandExpressionCFG(left, c); s != nil {
+            // For unions of multiple productions, ensure option/repeat constructs are given separate non-terminals
+            g.productions = append(g.productions, Production { AUXILIARY, left, []Symbol { s } })
         }
-        g.productions = append(g.productions, Production { NORMAL, left, symbols })
     }
+}
+
+// For a given concatenated string of nodes from the AST, create production after generating list of symbols.
+func (g *GrammarGenerator) flattenConcatCFG(left NonTerminal, node *ConcatNode) {
+    // Flatten concatenated nodes to obtain symbols of each production
+    nodes := flattenConcat(node, make([]AST, 0))
+    symbols := make([]Symbol, 0, len(nodes))
+    // Convert nodes in list to symbols
+    for _, n := range nodes {
+        s := g.expandExpressionCFG(left, n)
+        if s != nil { symbols = append(symbols, s) }
+    }
+    g.productions = append(g.productions, Production { NORMAL, left, symbols })
 }
 
 // Converts a given literal node from the AST to a CFG symbol.
@@ -176,21 +208,19 @@ func (g *GrammarGenerator) literalCFG(expression AST) (Symbol, bool) {
         if t, ok := g.strings[str]; ok { return t, true }
         fmt.Printf("Generation error: No token explicitly matches \"%s\" - %d:%d\n", str, node.Location.Line, node.Location.Col)
     case *ClassNode:
-        fmt.Printf("Generation error: Classes can not be used in rule expressions - %d:%d\n", node.Location.Line, node.Location.Col)
+        fmt.Printf("Generation error: Classes cannot be used in rule expressions - %d:%d\n", node.Location.Line, node.Location.Col)
+    case *LabelNode: fmt.Printf("Generation error: Invalid use of label - %d:%d\n", node.Location.Line, node.Location.Col)
     default: return nil, false
     }
     return nil, true
 }
 
-// TODO: Allow grammar to specify associativity and callback name
-// TODO: Further generalization (dangling-else ambiguity?)
-
 // Removes simple precedence and associativity operator-form ambiguities in the grammar.
 // Not guaranteed to remove all ambiguities, but will resolve those of infix, prefix, and postfix operations.
-func (g *GrammarGenerator) removeOperatorAmbiguities() {
+func (g *GrammarGenerator) removeAmbiguities() {
     type AmbiguityType uint
     const (NONE AmbiguityType = iota; INFIX; PREFIX; POSTFIX)
-    type Ambiguity struct { t AmbiguityType; production Production }
+    type Ambiguity struct { ambiguityType AmbiguityType; production Production }
     // Group productions together based on their non-terminal
     productions := make(map[NonTerminal][]Production, len(g.nonTerminals))
     modified := make([]Production, 0, len(g.productions))
@@ -223,11 +253,11 @@ func (g *GrammarGenerator) removeOperatorAmbiguities() {
             // Create new auxiliary non-terminal
             // Don't generate new non-terminal when last precedence level is a prefix or postfix operator
             next := left
-            if m.t == INFIX || i < len(a) - 1 { next = g.deriveNonTerminal(nt) }
+            if m.ambiguityType == INFIX || i < len(a) - 1 { next = g.deriveNonTerminal(nt) }
             // Modify existing productions
             right := m.production.Right
             modified = append(modified, Production { m.production.Type, left, right })
-            switch m.t {
+            switch m.ambiguityType {
             case INFIX:
                 // For infix ambiguity, eliminate either left or right-recursion to force associativity
                 // For left-associative productions,  E_k -> E_k ... E_{k + 1} (eliminate right-recursion)
@@ -276,9 +306,9 @@ func (g *Grammar) Augment() *Production {
 
 // ------------------------------------------------------------------------------------------------------------------------------
 
-func flattenConcatenation(node *ConcatenationNode, nodes []AST) []AST {
-    if a, ok := node.A.(*ConcatenationNode); ok { nodes = flattenConcatenation(a, nodes) } else { nodes = append(nodes, node.A) }
-    if b, ok := node.B.(*ConcatenationNode); ok { nodes = flattenConcatenation(b, nodes) } else { nodes = append(nodes, node.B) }
+func flattenConcat(node *ConcatNode, nodes []AST) []AST {
+    if a, ok := node.A.(*ConcatNode); ok { nodes = flattenConcat(a, nodes) } else { nodes = append(nodes, node.A) }
+    if b, ok := node.B.(*ConcatNode); ok { nodes = flattenConcat(b, nodes) } else { nodes = append(nodes, node.B) }
     return nodes
 }
 
@@ -327,7 +357,7 @@ type ParseTreeNode struct {
 
 func NewShiftReduceParser(table LRParseTable) *ShiftReduceParser { return &ShiftReduceParser { table } }
 func (p *ShiftReduceParser) Parse() *ParseTreeNode {
-    input := []Terminal { "TOKEN", "IDENTIFIER", "COLON", "STRING", "CLASS", "HASH", "IDENTIFIER", "BAR", "IDENTIFIER", "PLUS", "SEMI", "RULE", "IDENTIFIER", "COLON", "L_PAREN", "IDENTIFIER", "R_PAREN", "QUESTION", "SEMI", EOF_TERMINAL }
+    input := []Terminal { "TOKEN", "IDENTIFIER", "COLON", "STRING", "CLASS", "HASH", "IDENTIFIER", "LEFT", "BAR", "IDENTIFIER", "PLUS", "ARROW", "SKIP", "SEMI", "RULE", "IDENTIFIER", "COLON", "L_PAREN", "IDENTIFIER", "R_PAREN", "QUESTION", "SEMI", EOF_TERMINAL }
     ip := 0
     stack := []StackState { { 0, nil } }
     for {
@@ -380,14 +410,14 @@ func (p *ShiftReduceParser) Parse() *ParseTreeNode {
 }
 
 func (n *ParseTreeNode) String(indent string) string {
-    if n == nil { return "nil" }
+    if n == nil { return indent + "<nil>" }
     switch n.Symbol.(type) {
-    case Terminal: return n.Symbol.String()
+    case Terminal: return indent + n.Symbol.String()
     case NonTerminal:
         children := make([]string, len(n.Children))
         next := indent + "  "
-        for i, c := range n.Children { children[i] = fmt.Sprintf("\n%s%s", next, c.String(next)) }
-        return fmt.Sprintf("%s:%s", n.Symbol, strings.Join(children, ""))
+        for i, c := range n.Children { children[i] = "\n" + c.String(next) }
+        return fmt.Sprintf("%s%s:%s", indent, n.Symbol, strings.Join(children, ""))
     default: panic("Invalid parse tree node symbol")
     }
 }

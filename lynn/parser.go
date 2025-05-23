@@ -62,11 +62,7 @@ func (p *Parser) parseRule() AST {
 
 // Represents operation precedence as an enumerated integer.
 type Precedence uint
-const (
-    UNION Precedence = iota
-    COMBINATION
-    QUANTIFIER
-)
+const (UNION Precedence = iota; LABEL; CONCAT; QUANTIFIER)
 
 func (p *Parser) parseExpressionDefault() AST { return p.parseExpression(UNION) }
 func (p *Parser) parseExpression(precedence Precedence) AST {
@@ -76,9 +72,10 @@ func (p *Parser) parseExpression(precedence Precedence) AST {
         // Determine precedence of current token in stream
         var next Precedence
         switch p.lexer.Token.Type {
-        case BAR: next = UNION
+        case BAR:  next = UNION
+        case HASH: next = LABEL
         case L_PAREN, IDENTIFIER, STRING, CLASS, DOT: // All possible tokens for the beginning of a regular expression
-            next = COMBINATION
+            next = CONCAT
         case PLUS, STAR, QUESTION: next = QUANTIFIER
         default: break main
         }
@@ -90,6 +87,16 @@ func (p *Parser) parseExpression(precedence Precedence) AST {
             right := p.parseExpression(next + 1)
             if right == nil { return nil }
             left = &UnionNode { left, right }
+        case p.lexer.Match(HASH):
+            token := p.lexer.Token
+            if !p.lexer.Match(IDENTIFIER) { return nil }
+            assoc := NO_ASSOC
+            if p.lexer.Match(LEFT) {
+                assoc = LEFT_ASSOC
+            } else if p.lexer.Match(RIGHT) {
+                assoc = RIGHT_ASSOC
+            }
+            left = &LabelNode { left, &IdentifierNode { token.Value, token.Location }, assoc, token.Location }
         case p.lexer.Match(QUESTION): left = &OptionNode { left }
         case p.lexer.Match(STAR): left = &RepeatNode { left }
         case p.lexer.Match(PLUS): left = &RepeatOneNode { left }
@@ -98,7 +105,7 @@ func (p *Parser) parseExpression(precedence Precedence) AST {
         default:
             right := p.parseExpression(next + 1)
             if right == nil { return nil }
-            left = &ConcatenationNode { left, right }
+            left = &ConcatNode { left, right }
         }
     }
     return left

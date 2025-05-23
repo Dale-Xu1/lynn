@@ -41,8 +41,19 @@ type RepeatNode struct { Expression AST }
 // Node representing an repeat one or more quantifier. Allows one or more occurrences of the given regular expression.
 type RepeatOneNode struct { Expression AST }
 
+// Associativity type enum. Either NO_ASSOC, LEFT_ASSOC, or RIGHT_ASSOC.
+type AssociativityType uint
+const (NO_ASSOC AssociativityType = iota; LEFT_ASSOC; RIGHT_ASSOC)
+// Node representing a rule case label. Specifies the callback identifier and associativity for the disambiguation process.
+type LabelNode struct {
+    Expression    AST
+    Identifier    *IdentifierNode
+    Associativity AssociativityType
+    Location      Location
+}
+
 // Node representing a concatenation operation. Requires that one expression immediately follow the preceding expression.
-type ConcatenationNode struct {
+type ConcatNode struct {
     A, B AST
 }
 
@@ -83,7 +94,17 @@ func (n OptionNode) String() string { return fmt.Sprintf("(%v)?", n.Expression) 
 func (n RepeatNode) String() string { return fmt.Sprintf("(%v)*", n.Expression) }
 func (n RepeatOneNode) String() string { return fmt.Sprintf("(%v)+", n.Expression) }
 
-func (n ConcatenationNode) String() string { return fmt.Sprintf("(%v %v)", n.A, n.B) }
+func (n LabelNode) String() string {
+    var assoc string
+    if n.Associativity == LEFT_ASSOC {
+        assoc = "left"
+    } else {
+        assoc = "right"
+    }
+    return fmt.Sprintf("(%v) #%s %s", n.Expression, n.Identifier, assoc)
+}
+
+func (n ConcatNode) String() string { return fmt.Sprintf("(%v %v)", n.A, n.B) }
 func (n UnionNode) String() string { return fmt.Sprintf("(%v | %v)", n.A, n.B) }
 
 func (n IdentifierNode) String() string { return fmt.Sprintf("id:%s", n.Name) }
