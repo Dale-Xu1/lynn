@@ -18,10 +18,10 @@ func main() {
     // fmt.Println("== abstract syntax tree == ")
     // fmt.Println(ast)
 
-    generator := lynn.NewLexerGenerator()
-    nfa, ranges := generator.GenerateNFA(ast)
-    dfa := generator.NFAtoDFA(nfa, ranges)
-    lynn.CompileLexer("lynn", ast, ranges, dfa)
+    // generator := lynn.NewLexerGenerator()
+    // nfa, ranges := generator.GenerateNFA(ast)
+    // dfa := generator.NFAtoDFA(nfa, ranges)
+    // lynn.CompileLexer("lynn", ast, ranges, dfa)
 
     grammar := lynn.NewGrammarGenerator().GenerateCFG(ast)
     fmt.Println("== grammar ==")
@@ -32,6 +32,6 @@ func main() {
     // table.PrintTable()
     _ = table
 
-    // p := lynn.NewShiftReduceParser(table)
-    // fmt.Println(p.Parse().String(""))
+    p := lynn.NewShiftReduceParser(table)
+    fmt.Println(p.Parse().String(""))
 }

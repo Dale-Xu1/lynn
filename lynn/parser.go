@@ -82,6 +82,7 @@ func (p *Parser) parseExpression(precedence Precedence) AST {
         if next < precedence { break main } // Stop parsing if precedence is too low
 
         // Continue parsing based on type of expression
+        t := p.lexer.Token
         switch {
         case p.lexer.Match(BAR):
             right := p.parseExpression(next + 1)
@@ -96,7 +97,7 @@ func (p *Parser) parseExpression(precedence Precedence) AST {
             } else if p.lexer.Match(RIGHT) {
                 assoc = RIGHT_ASSOC
             }
-            left = &LabelNode { left, &IdentifierNode { token.Value, token.Location }, assoc, token.Location }
+            left = &LabelNode { left, &IdentifierNode { token.Value, token.Location }, assoc, t.Location }
         case p.lexer.Match(QUESTION): left = &OptionNode { left }
         case p.lexer.Match(STAR): left = &RepeatNode { left }
         case p.lexer.Match(PLUS): left = &RepeatOneNode { left }
