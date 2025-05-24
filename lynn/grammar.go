@@ -28,10 +28,11 @@ type ProductionType uint
 const (NORMAL ProductionType = iota; AUXILIARY; FLATTEN; REMOVED)
 // Production struct. Expresses a sequence of symbols that a given non-terminal may be expanded to in a grammar.
 type Production struct {
-    Type  ProductionType
-    Left  NonTerminal
-    Right []Symbol
+    Type ProductionType
+    Left NonTerminal; Right []Symbol
+    Name string
 }
+// TODO: Add callback field to production struct
 
 // Lexer generator struct. Converts EBNF rule definitions to context-free grammar (CFG) production rules.
 type GrammarGenerator struct {
@@ -119,7 +120,7 @@ func (g *GrammarGenerator) flattenProductions(left NonTerminal, expression AST) 
             production = g.flattenConcatCFG(left, node)
         } else if s := g.expandExpressionCFG(left, c); s != nil {
             // For unions of multiple productions, ensure option/repeat constructs are given separate non-terminals
-            production = &Production { NORMAL, left, []Symbol { s } }
+            production = &Production { NORMAL, left, []Symbol { s }, "" }
         }
         g.productions = append(g.productions, production)
         if ok { g.labels[production] = label }
@@ -132,27 +133,27 @@ func (g *GrammarGenerator) expressionCFG(left NonTerminal, expression AST) {
     case *OptionNode:
         // Create production including an epsilon production
         g.expressionCFG(left, node.Expression)
-        g.productions = append(g.productions, &Production { REMOVED, left, []Symbol { } })
+        g.productions = append(g.productions, &Production { REMOVED, left, []Symbol { }, "" })
     case *RepeatNode:
         // E -> E E' (E' can be repeated 0 or more times)
         // E -> epsilon
         if t := g.expandExpressionCFG(left, node.Expression); t != nil {
             g.productions = append(g.productions,
-                &Production { FLATTEN, left, []Symbol { left, t } }, &Production { NORMAL, left, []Symbol { } })
+                &Production { FLATTEN, left, []Symbol { left, t }, "" }, &Production { NORMAL, left, []Symbol { }, "" })
         }
     case *RepeatOneNode:
         // E -> E E'
         // E -> E' (E' can be repeated 1 or more times)
         if t := g.expandExpressionCFG(left, node.Expression); t != nil {
             g.productions = append(g.productions,
-                &Production { FLATTEN, left, []Symbol { left, t } }, &Production { NORMAL, left, []Symbol { t } })
+                &Production { FLATTEN, left, []Symbol { left, t }, "" }, &Production { NORMAL, left, []Symbol { t }, "" })
         }
     // New non-terminals are auxiliary when production is for a non-derived non-terminal
     case *ConcatNode: g.productions = append(g.productions, g.flattenConcatCFG(left, node))
     case *UnionNode:  g.flattenUnionCFG(left, node)
     default:
         if s, ok := g.literalCFG(node); s != nil {
-            g.productions = append(g.productions, &Production{ NORMAL, left, []Symbol { s } })
+            g.productions = append(g.productions, &Production{ NORMAL, left, []Symbol { s }, "" })
         } else if !ok { panic("Invalid expression node passed to GrammarGenerator.symbolCFG()") }
     }
 }
@@ -179,7 +180,7 @@ func (g *GrammarGenerator) flattenUnionCFG(left NonTerminal, node *UnionNode) {
             production = g.flattenConcatCFG(left, node)
         } else if s := g.expandExpressionCFG(left, c); s != nil {
             // For unions of multiple productions, ensure option/repeat constructs are given separate non-terminals
-            production = &Production { AUXILIARY, left, []Symbol { s } }
+            production = &Production { AUXILIARY, left, []Symbol { s }, "" }
         }
         g.productions = append(g.productions, production)
     }
@@ -195,7 +196,7 @@ func (g *GrammarGenerator) flattenConcatCFG(left NonTerminal, node *ConcatNode) 
         s := g.expandExpressionCFG(left, n)
         if s != nil { symbols = append(symbols, s) }
     }
-    return &Production { NORMAL, left, symbols }
+    return &Production { NORMAL, left, symbols, "" }
 }
 
 // Converts a given literal node from the AST to a CFG symbol.
@@ -227,7 +228,6 @@ func (g *GrammarGenerator) removeAmbiguities() {
     type Ambiguity struct { ambiguityType AmbiguityType; production *Production }
     // Group productions together based on their non-terminal
     productions := make(map[NonTerminal][]*Production, len(g.nonTerminals))
-    modified := make([]*Production, 0, len(g.productions))
     for _, p := range g.productions { productions[p.Left] = append(productions[p.Left], p) }
     for nt, group := range productions {
         // Split productions for a given non-terminal based on if there exists explicit left or right-recursion
@@ -252,10 +252,7 @@ func (g *GrammarGenerator) removeAmbiguities() {
             rest = append(rest, p)
         }
         // At least one non-operation production must exist to perform disambiguation
-        if len(rest) == 0 {
-            for _, m := range a { modified = append(modified, m.production) }
-            continue
-        }
+        if len(rest) == 0 { continue }
         // Divide non-terminal productions into multiple precedence levels
         left := nt
         for i, m := range a {
@@ -264,8 +261,8 @@ func (g *GrammarGenerator) removeAmbiguities() {
             next := left
             if m.ambiguityType == INFIX || i < len(a) - 1 { next = g.deriveNonTerminal(nt) }
             // Modify existing productions
-            right := m.production.Right
-            modified = append(modified, &Production { m.production.Type, left, right })
+            p := m.production; right := p.Right
+            p.Left = left
             switch m.ambiguityType {
             case INFIX:
                 // For infix ambiguity, eliminate either left or right-recursion to force associativity
@@ -280,14 +277,13 @@ func (g *GrammarGenerator) removeAmbiguities() {
             case POSTFIX: right[0] = left
             }
             if next != left {
-                modified = append(modified, &Production { AUXILIARY, left, []Symbol { next } })
+                g.productions = append(g.productions, &Production { AUXILIARY, left, []Symbol { next }, "" })
                 left = next
             }
         }
         // Add all non-operation productions to highest precedence level non-terminal
-        for _, p := range rest { modified = append(modified, &Production { p.Type, left, p.Right }) }
+        for _, p := range rest { p.Left = left }
     }
-    g.productions = modified
 }
 
 func (g *GrammarGenerator) expectNoLabel(production *Production) {
@@ -321,7 +317,7 @@ func (g *GrammarGenerator) deriveNonTerminal(nt NonTerminal) NonTerminal {
 func (g *Grammar) Augment() *Production {
     t := NonTerminal("S'")
     g.NonTerminals = append(g.NonTerminals, t)
-    g.Productions = append(g.Productions, Production { NORMAL, t, []Symbol { g.Start } })
+    g.Productions = append(g.Productions, Production { NORMAL, t, []Symbol { g.Start }, "" })
     return &g.Productions[len(g.Productions) - 1]
 }
 
