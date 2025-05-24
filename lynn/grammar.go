@@ -32,7 +32,6 @@ type Production struct {
     Left NonTerminal; Right []Symbol
     Name string
 }
-// TODO: Add callback field to production struct
 
 // Lexer generator struct. Converts EBNF rule definitions to context-free grammar (CFG) production rules.
 type GrammarGenerator struct {
@@ -112,16 +111,19 @@ func (g *GrammarGenerator) flattenProductions(left NonTerminal, expression AST) 
         cases = []AST { expression }
     }
     // For each case, flatten concatenated nodes
-    for _, c := range cases {
-        label, ok := c.(*LabelNode); if ok { c = label.Expression }
-        var production *Production
-        if node, ok := c.(*ConcatNode); ok {
+    for _, node := range cases {
+        label, ok := node.(*LabelNode)
+        name := string(left)
+        if ok { node = label.Expression; name = label.Identifier.Name }
+        var symbols []Symbol
+        if n, ok := node.(*ConcatNode); ok {
             // Do not generate new non-terminal if the production is a concatenation
-            production = g.flattenConcatCFG(left, node)
-        } else if s := g.expandExpressionCFG(left, c); s != nil {
+            symbols = g.flattenConcatCFG(left, n)
+        } else if s := g.expandExpressionCFG(left, node); s != nil {
             // For unions of multiple productions, ensure option/repeat constructs are given separate non-terminals
-            production = &Production { NORMAL, left, []Symbol { s }, "" }
+            symbols = []Symbol { s }
         }
+        production := &Production { NORMAL, left, symbols, name }
         g.productions = append(g.productions, production)
         if ok { g.labels[production] = label }
     }
@@ -149,8 +151,9 @@ func (g *GrammarGenerator) expressionCFG(left NonTerminal, expression AST) {
                 &Production { FLATTEN, left, []Symbol { left, t }, "" }, &Production { NORMAL, left, []Symbol { t }, "" })
         }
     // New non-terminals are auxiliary when production is for a non-derived non-terminal
-    case *ConcatNode: g.productions = append(g.productions, g.flattenConcatCFG(left, node))
-    case *UnionNode:  g.flattenUnionCFG(left, node)
+    case *ConcatNode:
+        g.productions = append(g.productions, &Production { NORMAL, left, g.flattenConcatCFG(left, node), "" })
+    case *UnionNode: g.flattenUnionCFG(left, node)
     default:
         if s, ok := g.literalCFG(node); s != nil {
             g.productions = append(g.productions, &Production{ NORMAL, left, []Symbol { s }, "" })
@@ -173,12 +176,12 @@ func (g *GrammarGenerator) flattenUnionCFG(left NonTerminal, node *UnionNode) {
     // Find all production cases for a given non-terminal by obtaining leaf nodes in a union
     cases := flattenUnion(node, make([]AST, 0))
     // For each case, flatten concatenated nodes
-    for _, c := range cases {
+    for _, node := range cases {
         var production *Production
-        if node, ok := c.(*ConcatNode); ok {
+        if n, ok := node.(*ConcatNode); ok {
             // Do not generate new non-terminal if the production is a concatenation
-            production = g.flattenConcatCFG(left, node)
-        } else if s := g.expandExpressionCFG(left, c); s != nil {
+            production = &Production { NORMAL, left, g.flattenConcatCFG(left, n), "" }
+        } else if s := g.expandExpressionCFG(left, node); s != nil {
             // For unions of multiple productions, ensure option/repeat constructs are given separate non-terminals
             production = &Production { AUXILIARY, left, []Symbol { s }, "" }
         }
@@ -187,7 +190,7 @@ func (g *GrammarGenerator) flattenUnionCFG(left NonTerminal, node *UnionNode) {
 }
 
 // For a given concatenated string of nodes from the AST, create production after generating list of symbols.
-func (g *GrammarGenerator) flattenConcatCFG(left NonTerminal, node *ConcatNode) *Production {
+func (g *GrammarGenerator) flattenConcatCFG(left NonTerminal, node *ConcatNode) []Symbol {
     // Flatten concatenated nodes to obtain symbols of each production
     nodes := flattenConcat(node, make([]AST, 0))
     symbols := make([]Symbol, 0, len(nodes))
@@ -196,7 +199,7 @@ func (g *GrammarGenerator) flattenConcatCFG(left NonTerminal, node *ConcatNode) 
         s := g.expandExpressionCFG(left, n)
         if s != nil { symbols = append(symbols, s) }
     }
-    return &Production { NORMAL, left, symbols, "" }
+    return symbols
 }
 
 // Converts a given literal node from the AST to a CFG symbol.
@@ -345,6 +348,7 @@ func (p Production)  String() string {
     } else {
         builder.WriteString(" ε")
     }
+    if p.Name != "" { builder.WriteString(fmt.Sprintf("  #%s", p.Name)) }
     return builder.String()
 }
 
