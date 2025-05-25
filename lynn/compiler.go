@@ -73,3 +73,14 @@ func CompileLexer(file string, grammar *GrammarNode, ranges []Range, dfa LDFA) {
     defer f.Close()
     f.WriteString(result)
 }
+
+// FOR DEBUG PURPOSES:
+// Consumes all tokens emitted by lexer and prints them to the standard output.
+func (l *Lexer) PrintTokenStream() {
+    for {
+        location := fmt.Sprintf("%d:%d-%d:%d", l.Token.Start.Line, l.Token.Start.Col, l.Token.End.Line, l.Token.End.Col)
+        fmt.Printf("%-16s | %-16s %-16s\n", location, l.Token.Type, l.Token.Value)
+        if l.Token.Type == EOF { break }
+        l.Next()
+    }
+}

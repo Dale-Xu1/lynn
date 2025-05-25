@@ -9,6 +9,15 @@ import (
 // Parser struct. Converts token stream to abstract syntax tree (AST).
 type Parser struct { lexer *Lexer }
 
+// Tests if the type of the current token in the stream matches the provided type. If the types match, the next token is emitted.
+func (l *Lexer) Match(token TokenType) bool {
+    if l.Token.Type == token {
+        l.Next()
+        return true
+    }
+    return false
+}
+
 // Returns new parser struct.
 func NewParser(lexer *Lexer) *Parser { return &Parser { lexer } }
 // Reads tokens from stream and produces an abstract syntax tree representing the grammar.
@@ -35,7 +44,7 @@ func (p *Parser) parseRule() AST {
         if !p.lexer.Match(IDENTIFIER) || !p.lexer.Match(COLON) { return nil }
         expression := p.parseExpressionDefault()
         if expression == nil || !p.lexer.Match(SEMI) { return nil }
-        return &RuleNode { &IdentifierNode { token.Value, token.Location }, expression }
+        return &RuleNode { &IdentifierNode { token.Value, token.Start }, expression }
     case p.lexer.Match(TOKEN):
         // Parse following pattern: token [identifier] : <expr> (-> skip) ;
         token := p.lexer.Token
@@ -48,14 +57,14 @@ func (p *Parser) parseRule() AST {
             skip = true
         }
         if !p.lexer.Match(SEMI) { return nil }
-        return &TokenNode { &IdentifierNode { token.Value, token.Location }, expression, skip }
+        return &TokenNode { &IdentifierNode { token.Value, token.Start }, expression, skip }
     case p.lexer.Match(FRAGMENT):
         // Parse following pattern: fragment [identifier] : <expr> ;
         token := p.lexer.Token
         if !p.lexer.Match(IDENTIFIER) || !p.lexer.Match(COLON) { return nil }
         expression := p.parseExpressionDefault()
         if expression == nil || !p.lexer.Match(SEMI) { return nil }
-        return &FragmentNode { &IdentifierNode { token.Value, token.Location }, expression }
+        return &FragmentNode { &IdentifierNode { token.Value, token.Start }, expression }
     default: return nil
     }
 }
@@ -97,7 +106,7 @@ func (p *Parser) parseExpression(precedence Precedence) AST {
             } else if p.lexer.Match(RIGHT) {
                 assoc = RIGHT_ASSOC
             }
-            left = &LabelNode { left, &IdentifierNode { token.Value, token.Location }, assoc, t.Location }
+            left = &LabelNode { left, &IdentifierNode { token.Value, token.Start }, assoc, t.Start }
         case p.lexer.Match(QUESTION): left = &OptionNode { left }
         case p.lexer.Match(STAR): left = &RepeatNode { left }
         case p.lexer.Match(PLUS): left = &RepeatOneNode { left }
@@ -120,22 +129,22 @@ func (p *Parser) parsePrimary() AST {
         if expr == nil || !p.lexer.Match(R_PAREN) { return nil }
         return expr
 
-    case p.lexer.Match(DOT): return &ClassNode { negateRanges(expandClass([]rune { '\n', '\r' }, token.Location)), token.Location }
-    case p.lexer.Match(IDENTIFIER): return &IdentifierNode { token.Value, token.Location }
+    case p.lexer.Match(DOT): return &ClassNode { negateRanges(expandClass([]rune { '\n', '\r' }, token.Start)), token.Start }
+    case p.lexer.Match(IDENTIFIER): return &IdentifierNode { token.Value, token.Start }
     case p.lexer.Match(STRING):
         value := token.Value[1:len(token.Value) - 1] // Remove quotation marks
-        return &StringNode { reduceString([]rune(value)), token.Location }
+        return &StringNode { reduceString([]rune(value)), token.Start }
     case p.lexer.Match(CLASS):
         value := token.Value[1:len(token.Value) - 1] // Remove brackets
         // If caret occurs, flag class as negated and remove caret
         negated := len(value) > 0 && value[0] == '^'
         var expanded []Range
         if !negated {
-            expanded = expandClass(reduceString([]rune(value)), token.Location)
+            expanded = expandClass(reduceString([]rune(value)), token.Start)
         } else {
-            expanded = negateRanges(expandClass(reduceString([]rune(value[1:])), token.Location))
+            expanded = negateRanges(expandClass(reduceString([]rune(value[1:])), token.Start))
         }
-        return &ClassNode { expanded, token.Location }
+        return &ClassNode { expanded, token.Start }
     default: return nil // Invalid expression
     }
 }
@@ -222,7 +231,7 @@ func max[T cmp.Ordered](a, b T) T {
 func (p *Parser) unexpected() {
     // Raise error message describing the current token in the stream as unexpected
     token := p.lexer.Token
-    fmt.Printf("Syntax error: Unexpected token %q - %d:%d\n", token.Value, token.Location.Line, token.Location.Col)
+    fmt.Printf("Syntax error: Unexpected token %q - %d:%d\n", token.Value, token.Start.Line, token.Start.Col)
 }
 
 func (p *Parser) synchronize() {

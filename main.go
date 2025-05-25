@@ -24,13 +24,11 @@ func main() {
     // lynn.CompileLexer("lynn", ast, ranges, dfa)
 
     grammar := lynn.NewGrammarGenerator().GenerateCFG(ast)
-    fmt.Println("== grammar ==")
-    grammar.PrintGrammar()
-    fmt.Println()
+    // fmt.Println("== grammar ==")
+    // grammar.PrintGrammar()
     table := lynn.NewLALRParserGenerator().Generate(grammar)
     // fmt.Println("== parse table ==")
     // table.PrintTable()
-    _ = table
 
     p := lynn.NewShiftReduceParser(table)
     fmt.Println(p.Parse().String(""))

@@ -20,7 +20,7 @@ type Grammar struct {
     Start        NonTerminal
     Productions  []Production
 }
-// Production type enum. Either NORMAL, AUXILIARY, OR REMOVED.
+// Production type enum. Either NORMAL, AUXILIARY, FLATTEN, OR REMOVED.
 // Auxiliary productions must have a right-hand side with a single non-terminal.
 // Flatten productions must follow the form E -> E E_0.
 // Removed productions must have a length of 0 (epsilon productions).
