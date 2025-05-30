@@ -35,7 +35,7 @@ var accept = map[int]TokenType { /*{6}*/ }
 type Lexer struct {
     Token   Token
     stream  *InputStream
-    handler ErrorHandler
+    handler LexerErrorHandler
 }
 
 // Input stream struct. Produces character stream.
@@ -47,8 +47,8 @@ type InputStream struct {
 type streamData struct { char rune; location Location }
 
 // Function called when the lexer encounters an error. Expected to bring input stream to synchronization point.
-type ErrorHandler func (stream *InputStream, char rune, location Location)
-var DEFAULT_HANDLER = func (stream *InputStream, char rune, location Location) {
+type LexerErrorHandler func (stream *InputStream, char rune, location Location)
+var DEFAULT_LEXER_HANDLER = func (stream *InputStream, char rune, location Location) {
     // Format special characters
     var str string
     switch char {
@@ -68,7 +68,7 @@ var DEFAULT_HANDLER = func (stream *InputStream, char rune, location Location) {
 }
 
 // Returns new lexer struct. Initializes lexer with initial token.
-func NewLexer(reader *bufio.Reader, handler ErrorHandler) *Lexer {
+func NewLexer(reader *bufio.Reader, handler LexerErrorHandler) *Lexer {
     stream := &InputStream { reader, Location { 1, 1 }, make([]streamData, 0), make([]streamData, 0) }
     lexer := &Lexer { Token { }, stream, handler }
     lexer.Next()
@@ -150,7 +150,7 @@ func (i *InputStream) Unread() {
 
 // Releases previously read characters.
 func (i *InputStream) reset() { i.stack = i.stack[:0] }
-func (i *InputStream) synchronize(handler ErrorHandler, char rune, location Location) {
+func (i *InputStream) synchronize(handler LexerErrorHandler, char rune, location Location) {
     i.reset()
     handler(i, char, location)
     i.reset()
@@ -174,7 +174,7 @@ func searchRange(char rune) int {
 
 // FOR DEBUG PURPOSES:
 // Consumes all tokens emitted by lexer and prints them to the standard output.
-func (l *Lexer) PrintTokenStream() {
+func (l *Lexer) PrintTokens() {
     for {
         location := fmt.Sprintf("%d:%d-%d:%d", l.Token.Start.Line, l.Token.Start.Col, l.Token.End.Line, l.Token.End.Col)
         fmt.Printf("%-16s | %-16s %-16s\n", location, l.Token.Type, l.Token.Value)

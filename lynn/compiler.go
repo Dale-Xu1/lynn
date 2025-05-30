@@ -135,7 +135,7 @@ func CompileParser(file string, grammar *GrammarNode, table LRParseTable) {
             gotoTable[i] = "    { },"
             continue
         }
-        // Format action entries for each state
+        // Format goto entry for each state
         out := make([]string, 0, l)
         for t, state := range entries {
             out = append(out, fmt.Sprintf("%d: %d", nonTerminalIndices[t], state))
@@ -158,26 +158,6 @@ func CompileParser(file string, grammar *GrammarNode, table LRParseTable) {
     f.WriteString(result)
 }
 
-
-
+// TODO: Parse tree visitor generator
 // TODO: Remove Lexer.Token, Lexer.Match(), and initial call to Lexer.Next()
-// TODO: Remove this after bootstrapping
-
-// Production type enum. Either NORMAL, AUXILIARY, FLATTEN, OR REMOVED.
-type ProductionType uint
-const (NORMAL ProductionType = iota; AUXILIARY; FLATTEN; REMOVED)
-// Production data struct. Expresses a sequence of symbols that a given non-terminal may be expanded to in a grammar.
-type ProductionData struct {
-    Type         ProductionType
-    Left, Length int
-    Visitor      string
-}
-
-// Action type enum. Either SHIFT, REDUCE, or ACCEPT.
-type ActionType uint
-const (SHIFT ActionType = iota; REDUCE; ACCEPT)
-// Parse table action entry struct. Holds action type and integer parameter.
-type ActionEntry struct {
-    Type  ActionType
-    Value int // For SHIFT actions, value represents a state identifier, for REDUCE actions, a production identifier
-}
+// TODO: Remove legacy parser after bootstrapping

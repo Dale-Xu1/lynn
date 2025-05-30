@@ -1,254 +1,244 @@
 package lynn
 
 import (
-	"cmp"
 	"fmt"
-	"sort"
+	"strings"
 )
 
-// Parser struct. Converts token stream to abstract syntax tree (AST).
-type Parser struct { lexer *Lexer }
+// Production type enum. Either NORMAL, AUXILIARY, FLATTEN, OR REMOVED.
+type ProductionType uint
+const (NORMAL ProductionType = iota; AUXILIARY; FLATTEN; REMOVED)
+// Production data struct. Expresses a sequence of symbols that a given non-terminal may be expanded to in a grammar.
+type ProductionData struct {
+    Type         ProductionType
+    Left, Length int
+    Visitor      string
+}
 
-// Tests if the type of the current token in the stream matches the provided type. If the types match, the next token is emitted.
-func (l *Lexer) Match(token TokenType) bool {
-    if l.Token.Type == token {
-        l.Next()
-        return true
-    }
-    return false
+// Action type enum. Either SHIFT, REDUCE, or ACCEPT.
+type ActionType uint
+const (SHIFT ActionType = iota; REDUCE; ACCEPT)
+// Parse table action entry struct. Holds action type and integer parameter.
+type ActionEntry struct {
+    Type  ActionType
+    Value int // For SHIFT actions, value represents a state identifier, for REDUCE actions, a production identifier
+}
+
+// Parse tree child interface. May either be a Token or ParseTreeNode struct.
+type ParseTreeChild interface { string(indent string) string }
+type ParseTreeNode struct {
+    Visitor  string
+    Children []ParseTreeChild
+}
+
+var productions = []ProductionData {
+    { FLATTEN, 3, 2, "" },
+    { NORMAL, 3, 0, "" },
+    { NORMAL, 0, 1, "grammar" },
+    { NORMAL, 1, 5, "ruleStmt" },
+    { NORMAL, 4, 2, "" },
+    { REMOVED, 4, 0, "" },
+    { NORMAL, 1, 6, "tokenStmt" },
+    { NORMAL, 1, 5, "fragmentStmt" },
+    { NORMAL, 2, 3, "unionExpr" },
+    { AUXILIARY, 5, 1, "" },
+    { AUXILIARY, 5, 1, "" },
+    { REMOVED, 5, 0, "" },
+    { NORMAL, 7, 4, "labelExpr" },
+    { NORMAL, 8, 2, "concatExpr" },
+    { NORMAL, 9, 3, "nameExpr" },
+    { AUXILIARY, 6, 1, "" },
+    { AUXILIARY, 6, 1, "" },
+    { AUXILIARY, 6, 1, "" },
+    { NORMAL, 10, 2, "quantifierExpr" },
+    { NORMAL, 10, 3, "groupExpr" },
+    { NORMAL, 10, 1, "identifierExpr" },
+    { NORMAL, 10, 1, "stringExpr" },
+    { NORMAL, 10, 1, "classExpr" },
+    { NORMAL, 10, 1, "anyExpr" },
+    { AUXILIARY, 2, 1, "" },
+    { AUXILIARY, 7, 1, "" },
+    { AUXILIARY, 8, 1, "" },
+    { AUXILIARY, 9, 1, "" },
+}
+var actionTable = []map[TokenType]ActionEntry {
+    { 2: { REDUCE, 1 }, 23: { REDUCE, 1 }, 3: { REDUCE, 1 }, 4: { REDUCE, 1 } },
+    { 23: { ACCEPT, 0 } },
+    { 23: { REDUCE, 2 }, 2: { SHIFT, 3 }, 4: { SHIFT, 4 }, 3: { SHIFT, 6 } },
+    { 20: { SHIFT, 7 } },
+    { 20: { SHIFT, 8 } },
+    { 23: { REDUCE, 0 }, 3: { REDUCE, 0 }, 4: { REDUCE, 0 }, 2: { REDUCE, 0 } },
+    { 20: { SHIFT, 9 } },
+    { 16: { SHIFT, 10 } },
+    { 16: { SHIFT, 11 } },
+    { 16: { SHIFT, 12 } },
+    { 20: { SHIFT, 15 }, 22: { SHIFT, 17 }, 12: { SHIFT, 19 }, 17: { SHIFT, 20 }, 21: { SHIFT, 14 } },
+    { 22: { SHIFT, 17 }, 17: { SHIFT, 20 }, 20: { SHIFT, 15 }, 12: { SHIFT, 19 }, 21: { SHIFT, 14 } },
+    { 22: { SHIFT, 17 }, 12: { SHIFT, 19 }, 20: { SHIFT, 15 }, 17: { SHIFT, 20 }, 21: { SHIFT, 14 } },
+    { 23: { REDUCE, 25 }, 18: { REDUCE, 25 }, 21: { SHIFT, 14 }, 12: { SHIFT, 19 }, 4: { REDUCE, 25 }, 2: { REDUCE, 25 }, 15: { REDUCE, 25 }, 14: { REDUCE, 25 }, 17: { SHIFT, 20 }, 22: { SHIFT, 17 }, 20: { SHIFT, 15 }, 19: { REDUCE, 25 }, 13: { REDUCE, 25 }, 3: { REDUCE, 25 } },
+    { 19: { REDUCE, 21 }, 3: { REDUCE, 21 }, 15: { REDUCE, 21 }, 17: { REDUCE, 21 }, 20: { REDUCE, 21 }, 10: { REDUCE, 21 }, 9: { REDUCE, 21 }, 12: { REDUCE, 21 }, 18: { REDUCE, 21 }, 14: { REDUCE, 21 }, 4: { REDUCE, 21 }, 23: { REDUCE, 21 }, 2: { REDUCE, 21 }, 21: { REDUCE, 21 }, 13: { REDUCE, 21 }, 22: { REDUCE, 21 }, 11: { REDUCE, 21 } },
+    { 17: { REDUCE, 20 }, 18: { REDUCE, 20 }, 14: { REDUCE, 20 }, 10: { REDUCE, 20 }, 21: { REDUCE, 20 }, 15: { REDUCE, 20 }, 23: { REDUCE, 20 }, 13: { REDUCE, 20 }, 4: { REDUCE, 20 }, 3: { REDUCE, 20 }, 22: { REDUCE, 20 }, 11: { REDUCE, 20 }, 8: { SHIFT, 26 }, 9: { REDUCE, 20 }, 20: { REDUCE, 20 }, 12: { REDUCE, 20 }, 19: { REDUCE, 20 }, 2: { REDUCE, 20 } },
+    { 11: { SHIFT, 28 }, 20: { REDUCE, 27 }, 18: { REDUCE, 27 }, 3: { REDUCE, 27 }, 22: { REDUCE, 27 }, 10: { SHIFT, 27 }, 9: { SHIFT, 29 }, 23: { REDUCE, 27 }, 2: { REDUCE, 27 }, 12: { REDUCE, 27 }, 19: { REDUCE, 27 }, 4: { REDUCE, 27 }, 21: { REDUCE, 27 }, 14: { REDUCE, 27 }, 15: { REDUCE, 27 }, 13: { REDUCE, 27 }, 17: { REDUCE, 27 } },
+    { 21: { REDUCE, 22 }, 18: { REDUCE, 22 }, 23: { REDUCE, 22 }, 20: { REDUCE, 22 }, 17: { REDUCE, 22 }, 19: { REDUCE, 22 }, 22: { REDUCE, 22 }, 9: { REDUCE, 22 }, 13: { REDUCE, 22 }, 11: { REDUCE, 22 }, 10: { REDUCE, 22 }, 14: { REDUCE, 22 }, 2: { REDUCE, 22 }, 15: { REDUCE, 22 }, 12: { REDUCE, 22 }, 3: { REDUCE, 22 }, 4: { REDUCE, 22 } },
+    { 20: { REDUCE, 26 }, 18: { REDUCE, 26 }, 17: { REDUCE, 26 }, 3: { REDUCE, 26 }, 4: { REDUCE, 26 }, 13: { REDUCE, 26 }, 2: { REDUCE, 26 }, 21: { REDUCE, 26 }, 14: { REDUCE, 26 }, 23: { REDUCE, 26 }, 19: { REDUCE, 26 }, 12: { REDUCE, 26 }, 15: { REDUCE, 26 }, 22: { REDUCE, 26 } },
+    { 23: { REDUCE, 23 }, 18: { REDUCE, 23 }, 13: { REDUCE, 23 }, 14: { REDUCE, 23 }, 12: { REDUCE, 23 }, 17: { REDUCE, 23 }, 19: { REDUCE, 23 }, 22: { REDUCE, 23 }, 2: { REDUCE, 23 }, 3: { REDUCE, 23 }, 9: { REDUCE, 23 }, 11: { REDUCE, 23 }, 15: { REDUCE, 23 }, 10: { REDUCE, 23 }, 20: { REDUCE, 23 }, 4: { REDUCE, 23 }, 21: { REDUCE, 23 } },
+    { 12: { SHIFT, 19 }, 20: { SHIFT, 15 }, 21: { SHIFT, 14 }, 17: { SHIFT, 20 }, 22: { SHIFT, 17 } },
+    { 13: { SHIFT, 32 }, 15: { SHIFT, 33 } },
+    { 14: { SHIFT, 34 }, 23: { REDUCE, 24 }, 19: { REDUCE, 24 }, 15: { REDUCE, 24 }, 3: { REDUCE, 24 }, 4: { REDUCE, 24 }, 13: { REDUCE, 24 }, 2: { REDUCE, 24 }, 18: { REDUCE, 24 } },
+    { 13: { SHIFT, 32 }, 15: { SHIFT, 35 } },
+    { 19: { SHIFT, 37 }, 13: { SHIFT, 32 }, 15: { REDUCE, 5 } },
+    { 12: { REDUCE, 13 }, 20: { REDUCE, 13 }, 22: { REDUCE, 13 }, 13: { REDUCE, 13 }, 2: { REDUCE, 13 }, 4: { REDUCE, 13 }, 3: { REDUCE, 13 }, 18: { REDUCE, 13 }, 21: { REDUCE, 13 }, 14: { REDUCE, 13 }, 19: { REDUCE, 13 }, 23: { REDUCE, 13 }, 17: { REDUCE, 13 }, 15: { REDUCE, 13 } },
+    { 12: { SHIFT, 19 }, 17: { SHIFT, 20 }, 22: { SHIFT, 17 }, 21: { SHIFT, 14 }, 20: { SHIFT, 15 } },
+    { 22: { REDUCE, 16 }, 19: { REDUCE, 16 }, 9: { REDUCE, 16 }, 20: { REDUCE, 16 }, 15: { REDUCE, 16 }, 4: { REDUCE, 16 }, 23: { REDUCE, 16 }, 21: { REDUCE, 16 }, 11: { REDUCE, 16 }, 14: { REDUCE, 16 }, 10: { REDUCE, 16 }, 2: { REDUCE, 16 }, 3: { REDUCE, 16 }, 13: { REDUCE, 16 }, 17: { REDUCE, 16 }, 18: { REDUCE, 16 }, 12: { REDUCE, 16 } },
+    { 17: { REDUCE, 17 }, 10: { REDUCE, 17 }, 11: { REDUCE, 17 }, 12: { REDUCE, 17 }, 21: { REDUCE, 17 }, 2: { REDUCE, 17 }, 19: { REDUCE, 17 }, 14: { REDUCE, 17 }, 20: { REDUCE, 17 }, 4: { REDUCE, 17 }, 3: { REDUCE, 17 }, 13: { REDUCE, 17 }, 23: { REDUCE, 17 }, 18: { REDUCE, 17 }, 22: { REDUCE, 17 }, 15: { REDUCE, 17 }, 9: { REDUCE, 17 } },
+    { 3: { REDUCE, 15 }, 9: { REDUCE, 15 }, 22: { REDUCE, 15 }, 13: { REDUCE, 15 }, 15: { REDUCE, 15 }, 11: { REDUCE, 15 }, 23: { REDUCE, 15 }, 21: { REDUCE, 15 }, 20: { REDUCE, 15 }, 12: { REDUCE, 15 }, 4: { REDUCE, 15 }, 19: { REDUCE, 15 }, 17: { REDUCE, 15 }, 18: { REDUCE, 15 }, 10: { REDUCE, 15 }, 2: { REDUCE, 15 }, 14: { REDUCE, 15 } },
+    { 18: { REDUCE, 18 }, 11: { REDUCE, 18 }, 14: { REDUCE, 18 }, 22: { REDUCE, 18 }, 20: { REDUCE, 18 }, 10: { REDUCE, 18 }, 19: { REDUCE, 18 }, 23: { REDUCE, 18 }, 12: { REDUCE, 18 }, 21: { REDUCE, 18 }, 2: { REDUCE, 18 }, 3: { REDUCE, 18 }, 4: { REDUCE, 18 }, 15: { REDUCE, 18 }, 9: { REDUCE, 18 }, 17: { REDUCE, 18 }, 13: { REDUCE, 18 } },
+    { 18: { SHIFT, 39 }, 13: { SHIFT, 32 } },
+    { 12: { SHIFT, 19 }, 21: { SHIFT, 14 }, 22: { SHIFT, 17 }, 17: { SHIFT, 20 }, 20: { SHIFT, 15 } },
+    { 4: { REDUCE, 3 }, 3: { REDUCE, 3 }, 2: { REDUCE, 3 }, 23: { REDUCE, 3 } },
+    { 20: { SHIFT, 41 } },
+    { 23: { REDUCE, 7 }, 3: { REDUCE, 7 }, 2: { REDUCE, 7 }, 4: { REDUCE, 7 } },
+    { 15: { SHIFT, 42 } },
+    { 7: { SHIFT, 43 } },
+    { 15: { REDUCE, 14 }, 23: { REDUCE, 14 }, 20: { REDUCE, 14 }, 21: { REDUCE, 14 }, 13: { REDUCE, 14 }, 17: { REDUCE, 14 }, 22: { REDUCE, 14 }, 14: { REDUCE, 14 }, 12: { REDUCE, 14 }, 4: { REDUCE, 14 }, 19: { REDUCE, 14 }, 2: { REDUCE, 14 }, 3: { REDUCE, 14 }, 18: { REDUCE, 14 } },
+    { 19: { REDUCE, 19 }, 21: { REDUCE, 19 }, 12: { REDUCE, 19 }, 17: { REDUCE, 19 }, 23: { REDUCE, 19 }, 9: { REDUCE, 19 }, 10: { REDUCE, 19 }, 15: { REDUCE, 19 }, 11: { REDUCE, 19 }, 18: { REDUCE, 19 }, 22: { REDUCE, 19 }, 4: { REDUCE, 19 }, 3: { REDUCE, 19 }, 13: { REDUCE, 19 }, 14: { REDUCE, 19 }, 2: { REDUCE, 19 }, 20: { REDUCE, 19 } },
+    { 15: { REDUCE, 8 }, 18: { REDUCE, 8 }, 3: { REDUCE, 8 }, 13: { REDUCE, 8 }, 14: { SHIFT, 34 }, 23: { REDUCE, 8 }, 19: { REDUCE, 8 }, 4: { REDUCE, 8 }, 2: { REDUCE, 8 } },
+    { 19: { REDUCE, 11 }, 18: { REDUCE, 11 }, 3: { REDUCE, 11 }, 6: { SHIFT, 44 }, 5: { SHIFT, 46 }, 4: { REDUCE, 11 }, 13: { REDUCE, 11 }, 2: { REDUCE, 11 }, 15: { REDUCE, 11 }, 14: { REDUCE, 11 }, 23: { REDUCE, 11 } },
+    { 23: { REDUCE, 6 }, 2: { REDUCE, 6 }, 4: { REDUCE, 6 }, 3: { REDUCE, 6 } },
+    { 15: { REDUCE, 4 } },
+    { 4: { REDUCE, 10 }, 19: { REDUCE, 10 }, 18: { REDUCE, 10 }, 2: { REDUCE, 10 }, 23: { REDUCE, 10 }, 13: { REDUCE, 10 }, 15: { REDUCE, 10 }, 14: { REDUCE, 10 }, 3: { REDUCE, 10 } },
+    { 4: { REDUCE, 12 }, 23: { REDUCE, 12 }, 19: { REDUCE, 12 }, 3: { REDUCE, 12 }, 15: { REDUCE, 12 }, 18: { REDUCE, 12 }, 13: { REDUCE, 12 }, 2: { REDUCE, 12 }, 14: { REDUCE, 12 } },
+    { 3: { REDUCE, 9 }, 14: { REDUCE, 9 }, 23: { REDUCE, 9 }, 13: { REDUCE, 9 }, 2: { REDUCE, 9 }, 18: { REDUCE, 9 }, 15: { REDUCE, 9 }, 4: { REDUCE, 9 }, 19: { REDUCE, 9 } },
+}
+var gotoTable = []map[int]int {
+    { 0: 1, 3: 2 },
+    { },
+    { 1: 5 },
+    { },
+    { },
+    { },
+    { },
+    { },
+    { },
+    { },
+    { 9: 18, 7: 22, 8: 13, 10: 16, 2: 21 },
+    { 7: 22, 2: 23, 9: 18, 10: 16, 8: 13 },
+    { 9: 18, 8: 13, 10: 16, 7: 22, 2: 24 },
+    { 10: 16, 9: 25 },
+    { },
+    { },
+    { 6: 30 },
+    { },
+    { },
+    { },
+    { 2: 31, 8: 13, 9: 18, 10: 16, 7: 22 },
+    { },
+    { },
+    { },
+    { 4: 36 },
+    { },
+    { 9: 38, 10: 16 },
+    { },
+    { },
+    { },
+    { },
+    { },
+    { 10: 16, 7: 40, 9: 18, 8: 13 },
+    { },
+    { },
+    { },
+    { },
+    { },
+    { },
+    { },
+    { },
+    { 5: 45 },
+    { },
+    { },
+    { },
+    { },
+    { },
+}
+
+// Parser struct. Converts token stream to parse tree.
+type Parser struct {
+    lexer *Lexer
 }
 
 // Returns new parser struct.
 func NewParser(lexer *Lexer) *Parser { return &Parser { lexer } }
-// Reads tokens from stream and produces an abstract syntax tree representing the grammar.
-func (p *Parser) Parse() *GrammarNode {
-    rules, tokens, fragments := make([]*RuleNode, 0), make([]*TokenNode, 0), make([]*FragmentNode, 0)
-    for !p.lexer.Match(EOF) {
-        switch rule := p.parseRule().(type) {
-        case *RuleNode: rules = append(rules, rule)
-        case *TokenNode: tokens = append(tokens, rule)
-        case *FragmentNode: fragments = append(fragments, rule)
-        case nil:
-            p.unexpected()
-            p.synchronize()
-        }
+// Generates parse tree based on token stream from lexer.
+func (p *Parser) Parse() *ParseTreeNode {
+    // Stack state struct. Holds the state identifier and the corresponding parse tree node.
+    type StackState struct {
+        state int
+        node  ParseTreeChild
     }
-    return &GrammarNode { rules, tokens, fragments }
-}
-
-func (p *Parser) parseRule() AST {
-    switch {
-    case p.lexer.Match(RULE):
-        // Parse following pattern: rule [identifier] : <expr> ;
-        token := p.lexer.Token
-        if !p.lexer.Match(IDENTIFIER) || !p.lexer.Match(COLON) { return nil }
-        expression := p.parseExpressionDefault()
-        if expression == nil || !p.lexer.Match(SEMI) { return nil }
-        return &RuleNode { &IdentifierNode { token.Value, token.Start }, expression }
-    case p.lexer.Match(TOKEN):
-        // Parse following pattern: token [identifier] : <expr> (-> skip) ;
-        token := p.lexer.Token
-        if !p.lexer.Match(IDENTIFIER) || !p.lexer.Match(COLON) { return nil }
-        expression := p.parseExpressionDefault(); if expression == nil { return nil }
-        // Test for presence of skip flag
-        var skip = false
-        if p.lexer.Match(ARROW) {
-            if !p.lexer.Match(SKIP) { return nil }
-            skip = true
+    // Initialize current token and stack
+    token, stack := p.lexer.Token, []StackState { { 0, nil } }
+    for {
+        // Get the current state at the top of the stack and find the action to take
+        // Next action is determined by action table given state index and the current token type
+        state := stack[len(stack) - 1].state
+        action, ok := actionTable[state][token.Type]
+        if !ok {
+            // If the table does not have a valid action, cannot parse current token
+            fmt.Printf("Syntax error: Unexpected token %q - %d:%d\n", token.Value, token.Start.Line, token.Start.Col)
+            return nil
         }
-        if !p.lexer.Match(SEMI) { return nil }
-        return &TokenNode { &IdentifierNode { token.Value, token.Start }, expression, skip }
-    case p.lexer.Match(FRAGMENT):
-        // Parse following pattern: fragment [identifier] : <expr> ;
-        token := p.lexer.Token
-        if !p.lexer.Match(IDENTIFIER) || !p.lexer.Match(COLON) { return nil }
-        expression := p.parseExpressionDefault()
-        if expression == nil || !p.lexer.Match(SEMI) { return nil }
-        return &FragmentNode { &IdentifierNode { token.Value, token.Start }, expression }
-    default: return nil
-    }
-}
-
-// Represents operation precedence as an enumerated integer.
-type Precedence uint
-const (UNION Precedence = iota; LABEL; CONCAT; QUANTIFIER)
-
-func (p *Parser) parseExpressionDefault() AST { return p.parseExpression(UNION) }
-func (p *Parser) parseExpression(precedence Precedence) AST {
-    left := p.parsePrimary()
-    if left == nil { return nil }
-    main: for {
-        // Determine precedence of current token in stream
-        var next Precedence
-        switch p.lexer.Token.Type {
-        case BAR:  next = UNION
-        case HASH: next = LABEL
-        case L_PAREN, IDENTIFIER, STRING, CLASS, DOT: // All possible tokens for the beginning of a regular expression
-            next = CONCAT
-        case PLUS, STAR, QUESTION: next = QUANTIFIER
-        default: break main
-        }
-        if next < precedence { break main } // Stop parsing if precedence is too low
-
-        // Continue parsing based on type of expression
-        t := p.lexer.Token
-        switch {
-        case p.lexer.Match(BAR):
-            right := p.parseExpression(next + 1)
-            if right == nil { return nil }
-            left = &UnionNode { left, right }
-        case p.lexer.Match(HASH):
-            token := p.lexer.Token
-            if !p.lexer.Match(IDENTIFIER) { return nil }
-            assoc := NO_ASSOC
-            if p.lexer.Match(LEFT) {
-                assoc = LEFT_ASSOC
-            } else if p.lexer.Match(RIGHT) {
-                assoc = RIGHT_ASSOC
+        switch action.Type {
+        case SHIFT:
+            // For shift actions, add new state to the stack along with token
+            stack = append(stack, StackState { action.Value, token })
+            token = p.lexer.Next()
+        case REDUCE:
+            // For reduce actions, pop states off stack and merge children into one node based on production
+            production := &productions[action.Value]
+            i := len(stack) - production.Length
+            var node ParseTreeChild
+            switch production.Type {
+            case NORMAL:
+                // Collect child nodes from current states on the stack and create node for reduction
+                children := make([]ParseTreeChild, production.Length)
+                for i, s := range stack[i:] { children[i] = s.node }
+                node = &ParseTreeNode { production.Visitor, children }
+            case FLATTEN:
+                // Of the two nodes popped, preserve the first and add the second as a child of the first
+                // Results in quantified expressions in the grammar generating arrays of elements
+                list, element := stack[i].node.(*ParseTreeNode), stack[i + 1].node
+                list.Children = append(list.Children, element)
+                node = list
+            case AUXILIARY: node = stack[i].node // Passes child through without generating new node
+            case REMOVED:   node = nil // Adds a nil value
             }
-            left = &LabelNode { left, &IdentifierNode { token.Value, token.Start }, assoc, t.Start }
-        case p.lexer.Match(QUESTION): left = &OptionNode { left }
-        case p.lexer.Match(STAR): left = &RepeatNode { left }
-        case p.lexer.Match(PLUS): left = &RepeatOneNode { left }
-    
-        // This relies on the current token being a valid beginning of an expression since combinations have no delimiter
-        default:
-            right := p.parseExpression(next + 1)
-            if right == nil { return nil }
-            left = &ConcatNode { left, right }
+            // Pop consumed states off stack
+            // Given new state at the top of the stack, find next state based on the goto table
+            stack = stack[:i]
+            state := stack[i - 1].state
+            next := gotoTable[state][production.Left]
+            // Add new state to top of the stack
+            stack = append(stack, StackState { next, node })
+        case ACCEPT: return stack[1].node.(*ParseTreeNode)
         }
     }
-    return left
 }
 
-func (p *Parser) parsePrimary() AST {
-    switch token := p.lexer.Token; {
-    // Parentheses enclose a group, precedence is reset for inner expression
-    case p.lexer.Match(L_PAREN):
-        expr := p.parseExpressionDefault()
-        if expr == nil || !p.lexer.Match(R_PAREN) { return nil }
-        return expr
+// FOR DEBUG PURPOSES:
+// Prints the parse tree to the standard output.
+func (n *ParseTreeNode) Print() { fmt.Println(n.string("")) }
 
-    case p.lexer.Match(DOT): return &ClassNode { negateRanges(expandClass([]rune { '\n', '\r' }, token.Start)), token.Start }
-    case p.lexer.Match(IDENTIFIER): return &IdentifierNode { token.Value, token.Start }
-    case p.lexer.Match(STRING):
-        value := token.Value[1:len(token.Value) - 1] // Remove quotation marks
-        return &StringNode { reduceString([]rune(value)), token.Start }
-    case p.lexer.Match(CLASS):
-        value := token.Value[1:len(token.Value) - 1] // Remove brackets
-        // If caret occurs, flag class as negated and remove caret
-        negated := len(value) > 0 && value[0] == '^'
-        var expanded []Range
-        if !negated {
-            expanded = expandClass(reduceString([]rune(value)), token.Start)
+func (t Token) string(indent string) string { return fmt.Sprintf("%s<%s %s>", indent, t.Type, t.Value) }
+func (n *ParseTreeNode) string(indent string) string {
+    children := make([]string, len(n.Children))
+    next := indent + "  "
+    for i, c := range n.Children {
+        str := "\n"
+        if c == nil {
+            str += fmt.Sprintf("%s<nil>", next)
         } else {
-            expanded = negateRanges(expandClass(reduceString([]rune(value[1:])), token.Start))
+            str += c.string(next)
         }
-        return &ClassNode { expanded, token.Start }
-    default: return nil // Invalid expression
+        children[i] = str
     }
-}
-
-func reduceString(chars []rune) []rune {
-    reduced := make([]rune, 0, len(chars))
-    for i := 0; i < len(chars); i++ {
-        char := chars[i]
-        switch {
-        case char == '\\':
-            i++
-            // Replace escape sequences with special characters
-            switch chars[i] {
-            case 't': reduced = append(reduced, '\t')
-            case 'n': reduced = append(reduced, '\n')
-            case 'r': reduced = append(reduced, '\r')
-            case '0': reduced = append(reduced, 0)
-            default: reduced = append(reduced, chars[i]) // Backslash is ignored for non-special characters
-            }
-        default: reduced = append(reduced, chars[i])
-        }
-    }
-    return reduced
-}
-
-func expandClass(chars []rune, location Location) []Range {
-    // Convert characters and hyphen notation to range structs
-    expanded := make([]Range, 0, len(chars))
-    for i := 0; i < len(chars); i++ {
-        char := chars[i]
-        switch {
-        case char == '-' && i > 0 && i < len(chars) - 1: // Hyphen for range cannot be first or last character in class
-            expanded = expanded[:len(expanded) - 1]
-            if chars[i - 1] <= chars[i + 1] {
-                expanded = append(expanded, Range { chars[i - 1], chars[i + 1] })
-            } else {
-                // Raise error and ignore range if endpoint order is reversed
-                fmt.Printf("Syntax error: Invalid range from \"%s\" to \"%s\" - %d:%d\n",
-                    formatChar(chars[i - 1]), formatChar(chars[i + 1]), location.Line, location.Col)
-            }
-            i++
-        default: expanded = append(expanded, Range { char, char })
-        }
-    }
-    if len(expanded) <= 1 { return expanded }
-    return mergeRanges(expanded)
-}
-
-func mergeRanges(ranges []Range) []Range {
-    // Sort ranges based on minimum
-    sort.Slice(ranges, func (i, j int) bool { return ranges[i].Min < ranges[j].Min })
-    // Scan ranges and merge if overlap is found
-    merged := make([]Range, 1, len(ranges))
-    merged[0] = ranges[0]
-    for _, r := range ranges[1:] {
-        last := &merged[len(merged) - 1]
-        if r.Min <= last.Max + 1 {
-            last.Max = max(last.Max, r.Max)
-        } else {
-            merged = append(merged, r)
-        }
-    }
-    return merged
-}
-
-func negateRanges(ranges []Range) []Range {
-    // Assumes ranges are already sorted and merged
-    negated := make([]Range, 0, len(ranges) + 1)
-    const MAX rune = 0x10ffff // Maximum unicode character
-    var start rune = 1
-    for _, r := range ranges {
-        if r.Min > start { negated = append(negated, Range { start, r.Min - 1 }) }
-        start = r.Max + 1
-    }
-    if start <= MAX { negated = append(negated, Range { start, MAX }) }
-    return negated
-}
-
-func max[T cmp.Ordered](a, b T) T {
-    if a > b { return a }
-    return b
-}
-
-func (p *Parser) unexpected() {
-    // Raise error message describing the current token in the stream as unexpected
-    token := p.lexer.Token
-    fmt.Printf("Syntax error: Unexpected token %q - %d:%d\n", token.Value, token.Start.Line, token.Start.Col)
-}
-
-func (p *Parser) synchronize() {
-    // Skip tokens until a semicolon or a keyword denoting the beginning of a rule is found
-    main: for {
-        switch p.lexer.Token.Type {
-        case SEMI:
-            p.lexer.Next()
-            fallthrough
-        case TOKEN, FRAGMENT:
-            break main
-        }
-        p.lexer.Next()
-    }
-}
-
-func formatChar(char rune) string {
-    str := fmt.Sprintf("%q", string(char))
-    return str[1:len(str) - 1]
+    return fmt.Sprintf("%s[%s]%s", indent, n.Visitor, strings.Join(children, ""))
 }

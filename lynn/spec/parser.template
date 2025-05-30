@@ -24,6 +24,13 @@ type ActionEntry struct {
     Value int // For SHIFT actions, value represents a state identifier, for REDUCE actions, a production identifier
 }
 
+// Parse tree child interface. May either be a Token or ParseTreeNode struct.
+type ParseTreeChild interface { string(indent string) string }
+type ParseTreeNode struct {
+    Visitor  string
+    Children []ParseTreeChild
+}
+
 var productions = []ProductionData {
 /*{1}*/
 }
@@ -34,41 +41,39 @@ var gotoTable = []map[int]int {
 /*{3}*/
 }
 
+// Parser struct. Converts token stream to parse tree.
 type Parser struct {
     lexer *Lexer
 }
 
-// Stack state struct. Holds the state identifier and the corresponding parse tree node.
-type StackState struct {
-    State int
-    Node  ParseTreeChild
-}
-
-// Parse tree child interface. May either be a Token or ParseTreeNode struct.
-type ParseTreeChild interface { String(indent string) string }
-type ParseTreeNode struct {
-    Visitor  string
-    Children []ParseTreeChild
-}
-
+// Returns new parser struct.
 func NewParser(lexer *Lexer) *Parser { return &Parser { lexer } }
+// Generates parse tree based on token stream from lexer.
 func (p *Parser) Parse() *ParseTreeNode {
-    token := p.lexer.Token
-    stack := []StackState { { 0, nil } }
+    // Stack state struct. Holds the state identifier and the corresponding parse tree node.
+    type StackState struct {
+        state int
+        node  ParseTreeChild
+    }
+    // Initialize current token and stack
+    token, stack := p.lexer.Token, []StackState { { 0, nil } }
     for {
-        state := stack[len(stack) - 1].State
+        // Get the current state at the top of the stack and find the action to take
+        // Next action is determined by action table given state index and the current token type
+        state := stack[len(stack) - 1].state
         action, ok := actionTable[state][token.Type]
         if !ok {
+            // If the table does not have a valid action, cannot parse current token
             fmt.Printf("Syntax error: Unexpected token %q - %d:%d\n", token.Value, token.Start.Line, token.Start.Col)
             return nil
         }
         switch action.Type {
         case SHIFT:
-            // Add new state to the stack along with token
+            // For shift actions, add new state to the stack along with token
             stack = append(stack, StackState { action.Value, token })
             token = p.lexer.Next()
         case REDUCE:
-            // Find production to reduce by
+            // For reduce actions, pop states off stack and merge children into one node based on production
             production := &productions[action.Value]
             i := len(stack) - production.Length
             var node ParseTreeChild
@@ -76,31 +81,35 @@ func (p *Parser) Parse() *ParseTreeNode {
             case NORMAL:
                 // Collect child nodes from current states on the stack and create node for reduction
                 children := make([]ParseTreeChild, production.Length)
-                for i, s := range stack[i:] { children[i] = s.Node }
+                for i, s := range stack[i:] { children[i] = s.node }
                 node = &ParseTreeNode { production.Visitor, children }
             case FLATTEN:
-                list := stack[i].Node.(*ParseTreeNode)
-                element := stack[i + 1].Node
+                // Of the two nodes popped, preserve the first and add the second as a child of the first
+                // Results in quantified expressions in the grammar generating arrays of elements
+                list, element := stack[i].node.(*ParseTreeNode), stack[i + 1].node
                 list.Children = append(list.Children, element)
                 node = list
-            case AUXILIARY: node = stack[i].Node
-            case REMOVED: node = nil
+            case AUXILIARY: node = stack[i].node // Passes child through without generating new node
+            case REMOVED:   node = nil // Adds a nil value
             }
-            // Find next state based on goto table
-            state := stack[i - 1].State
-            next := gotoTable[state][production.Left]
-            // Add new state to stack
+            // Pop consumed states off stack
+            // Given new state at the top of the stack, find next state based on the goto table
             stack = stack[:i]
+            state := stack[i - 1].state
+            next := gotoTable[state][production.Left]
+            // Add new state to top of the stack
             stack = append(stack, StackState { next, node })
-        case ACCEPT: return stack[1].Node.(*ParseTreeNode)
+        case ACCEPT: return stack[1].node.(*ParseTreeNode)
         }
     }
 }
 
 // FOR DEBUG PURPOSES:
-func (t Token) String(indent string) string { return fmt.Sprintf("%s<%s %s>", indent, t.Type, t.Value) }
-// FOR DEBUG PURPOSES:
-func (n *ParseTreeNode) String(indent string) string {
+// Prints the parse tree to the standard output.
+func (n *ParseTreeNode) Print() { fmt.Println(n.string("")) }
+
+func (t Token) string(indent string) string { return fmt.Sprintf("%s<%s %s>", indent, t.Type, t.Value) }
+func (n *ParseTreeNode) string(indent string) string {
     children := make([]string, len(n.Children))
     next := indent + "  "
     for i, c := range n.Children {
@@ -108,7 +117,7 @@ func (n *ParseTreeNode) String(indent string) string {
         if c == nil {
             str += fmt.Sprintf("%s<nil>", next)
         } else {
-            str += c.String(next)
+            str += c.string(next)
         }
         children[i] = str
     }
