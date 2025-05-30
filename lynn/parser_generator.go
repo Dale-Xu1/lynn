@@ -120,7 +120,7 @@ func (g *LALRParserGenerator) findClosure(items map[LR1Item]struct{}) map[LR1Ite
         if _, ok := first[EPSILON]; ok { delete(first, EPSILON); first[item.Lookahead] = struct{}{} }
         // Look for all productions with the given non terminal as its LHS
         for i := range g.grammar.Productions {
-            production := &g.grammar.Productions[i]
+            production := g.grammar.Productions[i]
             if production.Left != t { continue }
             // Add productions to the work list, starting dot at the start and create copies for each terminal in the first set
             for lookahead := range first {
@@ -234,7 +234,7 @@ func (g *LALRParserGenerator) buildParseTable(states []*LRState) LRParseTable {
     stateId := make(map[*LRState]int)
     productionId := make(map[*Production]int)
     for i, state := range states { stateId[state] = i }
-    for i := range g.grammar.Productions { productionId[&g.grammar.Productions[i]] = i }
+    for i, p := range g.grammar.Productions { productionId[p] = i }
     // Initialize action and goto tables in parse table
     table := LRParseTable {
         g.grammar,

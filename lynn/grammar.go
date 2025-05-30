@@ -18,7 +18,7 @@ type Grammar struct {
     Terminals    []Terminal
     NonTerminals []NonTerminal
     Start        NonTerminal
-    Productions  []Production
+    Productions  []*Production
 }
 // Production type enum. Either NORMAL, AUXILIARY, FLATTEN, OR REMOVED.
 // Auxiliary productions must have a right-hand side with a single non-terminal.
@@ -95,9 +95,7 @@ func (g *GrammarGenerator) GenerateCFG(grammar *GrammarNode) *Grammar {
     }
     g.removeAmbiguities()
     // Collect accumulated data into grammar struct
-    productions := make([]Production, len(g.productions))
-    for i, p := range g.productions { productions[i] = *p }
-    return &Grammar { terminals, g.nonTerminals, g.nonTerminals[0], productions }
+    return &Grammar { terminals, g.nonTerminals, g.nonTerminals[0], g.productions }
 }
 
 // For a given expression node from the AST, adds to a list of productions in CFG format.
@@ -319,9 +317,10 @@ func (g *GrammarGenerator) deriveNonTerminal(nt NonTerminal) NonTerminal {
 // Augment grammar with new start state. Returns production for augmented start state.
 func (g *Grammar) Augment() *Production {
     t := NonTerminal("S'")
+    production := &Production { NORMAL, t, []Symbol { g.Start }, "" }
     g.NonTerminals = append(g.NonTerminals, t)
-    g.Productions = append(g.Productions, Production { NORMAL, t, []Symbol { g.Start }, "" })
-    return &g.Productions[len(g.Productions) - 1]
+    g.Productions = append(g.Productions, production)
+    return production
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------
@@ -357,84 +356,4 @@ func (p Production)  String() string {
 func (g *Grammar) PrintGrammar() {
     fmt.Printf("[start: %s]\n", g.Start)
     for _, production := range g.Productions { fmt.Println(production) }
-}
-
-// ------------------------------------------------------------------------------------------------------------------------------
-// TODO: Compile to generated parser program
-
-type ShiftReduceParser struct {
-    table LRParseTable
-}
-
-type StackState struct {
-    State int
-    Node  *ParseTreeNode
-}
-
-type ParseTreeNode struct {
-    Symbol   Symbol
-    Children []*ParseTreeNode
-}
-
-func NewShiftReduceParser(table LRParseTable) *ShiftReduceParser { return &ShiftReduceParser { table } }
-func (p *ShiftReduceParser) Parse() *ParseTreeNode {
-    input := []Terminal { "TOKEN", "IDENTIFIER", "COLON", "STRING", "CLASS", "HASH", "IDENTIFIER", "LEFT", "BAR", "IDENTIFIER", "PLUS", "ARROW", "SKIP", "SEMI", "RULE", "IDENTIFIER", "COLON", "L_PAREN", "IDENTIFIER", "R_PAREN", "QUESTION", "SEMI", EOF_TERMINAL }
-    ip := 0
-    stack := []StackState { { 0, nil } }
-    for {
-        state, token := stack[len(stack) - 1].State, input[ip]
-        action, ok := p.table.Action[state][token]
-        if !ok {
-            fmt.Printf("Syntax error: Unexpected token %s\n", token)
-            return nil
-        }
-        switch action.Type {
-        case SHIFT:
-            // Create leaf node for terminal
-            node := &ParseTreeNode { token, nil }
-            // Add new state to the stack along with leaf node
-            stack = append(stack, StackState { action.Value, node })
-            ip++
-        case REDUCE:
-            // Find production to reduce by
-            production := p.table.Grammar.Productions[action.Value]
-            var node *ParseTreeNode
-            switch production.Type {
-            case NORMAL:
-                r := len(production.Right); l := len(stack) - r
-                // Collect child nodes from current states on the stack and create node for reduction
-                children := make([]*ParseTreeNode, r)
-                for i, s := range stack[l:] { children[i] = s.Node }
-                node = &ParseTreeNode { production.Left, children }
-                stack = stack[:l]
-            case FLATTEN:
-                l := len(stack) - 2
-                node = stack[l].Node; element := stack[l + 1].Node
-                node.Children = append(node.Children, element)
-                stack = stack[:l]
-            case AUXILIARY:
-                l := len(stack) - 1
-                node = stack[l].Node; stack = stack[:l]
-            case REMOVED: node = nil
-            }
-            // Find next state based on goto table
-            state := stack[len(stack) - 1].State
-            next := p.table.Goto[state][production.Left]
-            stack = append(stack, StackState { next, node })
-        case ACCEPT: return stack[1].Node
-        }
-    }
-}
-
-func (n *ParseTreeNode) String(indent string) string {
-    if n == nil { return indent + "<nil>" }
-    switch n.Symbol.(type) {
-    case Terminal: return indent + n.Symbol.String()
-    case NonTerminal:
-        children := make([]string, len(n.Children))
-        next := indent + "  "
-        for i, c := range n.Children { children[i] = "\n" + c.String(next) }
-        return fmt.Sprintf("%s%s:%s", indent, n.Symbol, strings.Join(children, ""))
-    default: panic("Invalid parse tree node symbol")
-    }
 }

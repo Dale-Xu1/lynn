@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+// TODO: Remove Lexer.Token and Lexer.Match()
+
 func CompileLexer(file string, grammar *GrammarNode, ranges []Range, dfa LDFA) {
     const LEXER_TEMPLATE string = "lynn/spec/lexer.template"
     // Read template information
@@ -74,6 +76,25 @@ func CompileLexer(file string, grammar *GrammarNode, ranges []Range, dfa LDFA) {
     f.WriteString(result)
 }
 
+func CompileParser(file string) {
+    const PARSER_TEMPLATE string = "lynn/spec/parser.template"
+    // Read template information
+    data, err := os.ReadFile(PARSER_TEMPLATE)
+    if err != nil { panic(err) }
+    template := string(data)
+    // TODO: Compile to generated parser program
+
+    result := template
+    // Write modified template to lexer program file
+    if err := os.MkdirAll("out", 0755); err != nil { panic(err) }
+    f, err := os.Create("out/lexer.go")
+    if err != nil { panic(err) }
+    defer f.Close()
+    f.WriteString(result)
+}
+
+// ------------------------------------------------------------------------------------------------------------------------------
+
 // FOR DEBUG PURPOSES:
 // Consumes all tokens emitted by lexer and prints them to the standard output.
 func (l *Lexer) PrintTokenStream() {
@@ -83,4 +104,88 @@ func (l *Lexer) PrintTokenStream() {
         if l.Token.Type == EOF { break }
         l.Next()
     }
+}
+
+
+type ShiftReduceParser struct {
+    table LRParseTable
+    // Productions []Production
+    // Action      []map[Token]ActionEntry
+    // Goto        []map[NonTerminal]int
+}
+
+type StackState struct {
+    State int
+    Node  ParseTreeChild
+}
+
+type ParseTreeChild interface { String(indent string) string }
+type ParseTreeNode struct {
+    Production *Production
+    Children   []ParseTreeChild
+}
+
+func NewShiftReduceParser(table LRParseTable) *ShiftReduceParser { return &ShiftReduceParser { table } }
+func (p *ShiftReduceParser) Parse() *ParseTreeNode {
+    input := []Terminal { "TOKEN", "IDENTIFIER", "COLON", "STRING", "CLASS", "HASH", "IDENTIFIER", "LEFT", "BAR", "IDENTIFIER", "PLUS", "SEMI", "RULE", "IDENTIFIER", "COLON", "L_PAREN", "IDENTIFIER", "R_PAREN", "QUESTION", "SEMI", EOF_TERMINAL }
+    ip := 0
+    stack := []StackState { { 0, nil } }
+    for {
+        state, token := stack[len(stack) - 1].State, input[ip]
+        action, ok := p.table.Action[state][token]
+        if !ok {
+            fmt.Printf("Syntax error: Unexpected token %s\n", token)
+            return nil
+        }
+        switch action.Type {
+        case SHIFT:
+            // Add new state to the stack along with token
+            stack = append(stack, StackState { action.Value, Token { EOF, token.String(), Location{}, Location{} } })
+            ip++
+        case REDUCE:
+            // Find production to reduce by
+            production := p.table.Grammar.Productions[action.Value]
+            var node ParseTreeChild
+            switch production.Type {
+            case NORMAL:
+                r := len(production.Right); l := len(stack) - r
+                // Collect child nodes from current states on the stack and create node for reduction
+                children := make([]ParseTreeChild, r)
+                for i, s := range stack[l:] { children[i] = s.Node }
+                node = &ParseTreeNode { production, children }
+                stack = stack[:l]
+            case FLATTEN:
+                l := len(stack) - 2
+                list := stack[l].Node.(*ParseTreeNode); element := stack[l + 1].Node
+                list.Children = append(list.Children, element)
+                node = list
+                stack = stack[:l]
+            case AUXILIARY:
+                l := len(stack) - 1
+                node = stack[l].Node; stack = stack[:l]
+            case REMOVED: node = nil
+            }
+            // Find next state based on goto table
+            state := stack[len(stack) - 1].State
+            next := p.table.Goto[state][production.Left]
+            stack = append(stack, StackState { next, node })
+        case ACCEPT: return stack[1].Node.(*ParseTreeNode)
+        }
+    }
+}
+
+func (t Token) String(indent string) string { return fmt.Sprintf("%s<%s %s>", indent, t.Type, t.Value) }
+func (n *ParseTreeNode) String(indent string) string {
+    children := make([]string, len(n.Children))
+    next := indent + "  "
+    for i, c := range n.Children {
+        str := "\n"
+        if c == nil {
+            str += fmt.Sprintf("%s<nil>", next)
+        } else {
+            str += c.String(next)
+        }
+        children[i] = str
+    }
+    return fmt.Sprintf("%s[%s]%s", indent, n.Production, strings.Join(children, ""))
 }
