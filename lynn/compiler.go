@@ -6,8 +6,6 @@ import (
 	"strings"
 )
 
-// TODO: Remove Lexer.Token and Lexer.Match()
-
 func CompileLexer(file string, grammar *GrammarNode, ranges []Range, dfa LDFA) {
     const LEXER_TEMPLATE string = "lynn/spec/lexer.template"
     // Read template information
@@ -16,13 +14,14 @@ func CompileLexer(file string, grammar *GrammarNode, ranges []Range, dfa LDFA) {
     template := string(data)
     // Format token type information
     tokens, typeName := make([]string, len(grammar.Tokens)), make([]string, len(grammar.Tokens))
+    tokenIndices := make(map[string]int, len(grammar.Tokens))
     skip := make([]string, 0)
     for i, token := range grammar.Tokens {
         name := token.Identifier.Name
-        tokens[i] = name
-        typeName[i] = fmt.Sprintf("%s: \"%s\"", name, name)
+        tokens[i], tokenIndices[name] = name, i
+        typeName[i] = fmt.Sprintf("%d: \"%s\"", i, name)
         if token.Skip {
-            skip = append(skip, fmt.Sprintf("%s: {}", name))
+            skip = append(skip, fmt.Sprintf("%d: {}", i))
         }
     }
     tokens[0] += " TokenType = iota"
@@ -55,7 +54,7 @@ func CompileLexer(file string, grammar *GrammarNode, ranges []Range, dfa LDFA) {
     // Format accepting states
     accept := make([]string, 0, len(dfa.Accept))
     for state, token := range dfa.Accept {
-        accept = append(accept, fmt.Sprintf("%d: %s", stateIndices[state], token))
+        accept = append(accept, fmt.Sprintf("%d: %d", stateIndices[state], tokenIndices[token]))
     }
     // Replace sections with compiled DFA
     pairs := []string {
@@ -76,116 +75,109 @@ func CompileLexer(file string, grammar *GrammarNode, ranges []Range, dfa LDFA) {
     f.WriteString(result)
 }
 
-func CompileParser(file string) {
+func CompileParser(file string, grammar *GrammarNode, table LRParseTable) {
     const PARSER_TEMPLATE string = "lynn/spec/parser.template"
     // Read template information
     data, err := os.ReadFile(PARSER_TEMPLATE)
     if err != nil { panic(err) }
     template := string(data)
-    // TODO: Compile to generated parser program
-
-    result := template
+    // Get token indices
+    tokenIndices := make(map[string]int, len(grammar.Tokens))
+    for i, token := range grammar.Tokens {
+        tokenIndices[token.Identifier.Name] = i
+    }
+    // Get non-terminal indices (skip augmented start non-terminal)
+    l := len(table.Grammar.NonTerminals) - 1
+    nonTerminalIndices := make(map[NonTerminal]int, l)
+    for i, t := range table.Grammar.NonTerminals[:l] {
+        nonTerminalIndices[t] = i
+    }
+    // Format production data
+    // Remove last production, which is the augmented start production
+    productions := make([]string, len(table.Grammar.Productions) - 1)
+    for i, p := range table.Grammar.Productions[:len(productions)] {
+        var s string
+        switch p.Type {
+        case NORMAL:    s = "NORMAL"
+        case AUXILIARY: s = "AUXILIARY"
+        case FLATTEN:   s = "FLATTEN"
+        case REMOVED:   s = "REMOVED"
+        }
+        productions[i] = fmt.Sprintf("    { %s, %d, %d, \"%s\" },",
+            s, nonTerminalIndices[p.Left], len(p.Right), p.Visitor)
+    }
+    // Format action table
+    actionTable := make([]string, len(table.Action))
+    for i, entries := range table.Action {
+        l := len(entries)
+        if l == 0 {
+            actionTable[i] = "    { },"
+            continue
+        }
+        // Format action entries for each state
+        out := make([]string, 0, l)
+        for t, entry := range entries {
+            var s string
+            switch entry.Type {
+            case SHIFT:  s = "SHIFT"
+            case REDUCE: s = "REDUCE"
+            case ACCEPT: s = "ACCEPT"
+            }
+            out = append(out, fmt.Sprintf("%d: { %s, %d }", tokenIndices[string(t)], s, entry.Value))
+        }
+        actionTable[i] = fmt.Sprintf("    { %s },", strings.Join(out, ", "))
+    }
+    // Format goto table
+    gotoTable := make([]string, len(table.Goto))
+    for i, entries := range table.Goto {
+        l := len(entries)
+        if l == 0 {
+            gotoTable[i] = "    { },"
+            continue
+        }
+        // Format action entries for each state
+        out := make([]string, 0, l)
+        for t, state := range entries {
+            out = append(out, fmt.Sprintf("%d: %d", nonTerminalIndices[t], state))
+        }
+        gotoTable[i] = fmt.Sprintf("    { %s },", strings.Join(out, ", "))
+    }
+    // Replace sections with compiled parse table
+    pairs := []string {
+        "/*{0}*/", file,
+        "/*{1}*/", strings.Join(productions, "\n"),
+        "/*{2}*/", strings.Join(actionTable, "\n"),
+        "/*{3}*/", strings.Join(gotoTable, "\n"),
+    }
+    result := strings.NewReplacer(pairs...).Replace(template)
     // Write modified template to lexer program file
     if err := os.MkdirAll("out", 0755); err != nil { panic(err) }
-    f, err := os.Create("out/lexer.go")
+    f, err := os.Create("out/parser.go")
     if err != nil { panic(err) }
     defer f.Close()
     f.WriteString(result)
 }
 
-// ------------------------------------------------------------------------------------------------------------------------------
 
-// FOR DEBUG PURPOSES:
-// Consumes all tokens emitted by lexer and prints them to the standard output.
-func (l *Lexer) PrintTokenStream() {
-    for {
-        location := fmt.Sprintf("%d:%d-%d:%d", l.Token.Start.Line, l.Token.Start.Col, l.Token.End.Line, l.Token.End.Col)
-        fmt.Printf("%-16s | %-16s %-16s\n", location, l.Token.Type, l.Token.Value)
-        if l.Token.Type == EOF { break }
-        l.Next()
-    }
+
+// TODO: Remove Lexer.Token, Lexer.Match(), and initial call to Lexer.Next()
+// TODO: Remove this after bootstrapping
+
+// Production type enum. Either NORMAL, AUXILIARY, FLATTEN, OR REMOVED.
+type ProductionType uint
+const (NORMAL ProductionType = iota; AUXILIARY; FLATTEN; REMOVED)
+// Production data struct. Expresses a sequence of symbols that a given non-terminal may be expanded to in a grammar.
+type ProductionData struct {
+    Type         ProductionType
+    Left, Length int
+    Visitor      string
 }
 
-
-type ShiftReduceParser struct {
-    table LRParseTable
-    // Productions []Production
-    // Action      []map[Token]ActionEntry
-    // Goto        []map[NonTerminal]int
-}
-
-type StackState struct {
-    State int
-    Node  ParseTreeChild
-}
-
-type ParseTreeChild interface { String(indent string) string }
-type ParseTreeNode struct {
-    Production *Production
-    Children   []ParseTreeChild
-}
-
-func NewShiftReduceParser(table LRParseTable) *ShiftReduceParser { return &ShiftReduceParser { table } }
-func (p *ShiftReduceParser) Parse() *ParseTreeNode {
-    input := []Terminal { "TOKEN", "IDENTIFIER", "COLON", "STRING", "CLASS", "HASH", "IDENTIFIER", "LEFT", "BAR", "IDENTIFIER", "PLUS", "SEMI", "RULE", "IDENTIFIER", "COLON", "L_PAREN", "IDENTIFIER", "R_PAREN", "QUESTION", "SEMI", EOF_TERMINAL }
-    ip := 0
-    stack := []StackState { { 0, nil } }
-    for {
-        state, token := stack[len(stack) - 1].State, input[ip]
-        action, ok := p.table.Action[state][token]
-        if !ok {
-            fmt.Printf("Syntax error: Unexpected token %s\n", token)
-            return nil
-        }
-        switch action.Type {
-        case SHIFT:
-            // Add new state to the stack along with token
-            stack = append(stack, StackState { action.Value, Token { EOF, token.String(), Location{}, Location{} } })
-            ip++
-        case REDUCE:
-            // Find production to reduce by
-            production := p.table.Grammar.Productions[action.Value]
-            var node ParseTreeChild
-            switch production.Type {
-            case NORMAL:
-                r := len(production.Right); l := len(stack) - r
-                // Collect child nodes from current states on the stack and create node for reduction
-                children := make([]ParseTreeChild, r)
-                for i, s := range stack[l:] { children[i] = s.Node }
-                node = &ParseTreeNode { production, children }
-                stack = stack[:l]
-            case FLATTEN:
-                l := len(stack) - 2
-                list := stack[l].Node.(*ParseTreeNode); element := stack[l + 1].Node
-                list.Children = append(list.Children, element)
-                node = list
-                stack = stack[:l]
-            case AUXILIARY:
-                l := len(stack) - 1
-                node = stack[l].Node; stack = stack[:l]
-            case REMOVED: node = nil
-            }
-            // Find next state based on goto table
-            state := stack[len(stack) - 1].State
-            next := p.table.Goto[state][production.Left]
-            stack = append(stack, StackState { next, node })
-        case ACCEPT: return stack[1].Node.(*ParseTreeNode)
-        }
-    }
-}
-
-func (t Token) String(indent string) string { return fmt.Sprintf("%s<%s %s>", indent, t.Type, t.Value) }
-func (n *ParseTreeNode) String(indent string) string {
-    children := make([]string, len(n.Children))
-    next := indent + "  "
-    for i, c := range n.Children {
-        str := "\n"
-        if c == nil {
-            str += fmt.Sprintf("%s<nil>", next)
-        } else {
-            str += c.String(next)
-        }
-        children[i] = str
-    }
-    return fmt.Sprintf("%s[%s]%s", indent, n.Production, strings.Join(children, ""))
+// Action type enum. Either SHIFT, REDUCE, or ACCEPT.
+type ActionType uint
+const (SHIFT ActionType = iota; REDUCE; ACCEPT)
+// Parse table action entry struct. Holds action type and integer parameter.
+type ActionEntry struct {
+    Type  ActionType
+    Value int // For SHIFT actions, value represents a state identifier, for REDUCE actions, a production identifier
 }

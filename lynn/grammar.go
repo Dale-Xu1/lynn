@@ -20,17 +20,14 @@ type Grammar struct {
     Start        NonTerminal
     Productions  []*Production
 }
-// Production type enum. Either NORMAL, AUXILIARY, FLATTEN, OR REMOVED.
+// Production struct. Expresses a sequence of symbols that a given non-terminal may be expanded to in a grammar.
 // Auxiliary productions must have a right-hand side with a single non-terminal.
 // Flatten productions must follow the form E -> E E_0.
 // Removed productions must have a length of 0 (epsilon productions).
-type ProductionType uint
-const (NORMAL ProductionType = iota; AUXILIARY; FLATTEN; REMOVED)
-// Production struct. Expresses a sequence of symbols that a given non-terminal may be expanded to in a grammar.
 type Production struct {
-    Type ProductionType
-    Left NonTerminal; Right []Symbol
-    Name string
+    Type    ProductionType
+    Left    NonTerminal; Right []Symbol
+    Visitor string
 }
 
 // Lexer generator struct. Converts EBNF rule definitions to context-free grammar (CFG) production rules.
@@ -111,8 +108,8 @@ func (g *GrammarGenerator) flattenProductions(left NonTerminal, expression AST) 
     // For each case, flatten concatenated nodes
     for _, node := range cases {
         label, ok := node.(*LabelNode)
-        name := string(left)
-        if ok { node = label.Expression; name = label.Identifier.Name }
+        visitor := string(left)
+        if ok { node = label.Expression; visitor = label.Identifier.Name }
         var symbols []Symbol
         if n, ok := node.(*ConcatNode); ok {
             // Do not generate new non-terminal if the production is a concatenation
@@ -121,7 +118,7 @@ func (g *GrammarGenerator) flattenProductions(left NonTerminal, expression AST) 
             // For unions of multiple productions, ensure option/repeat constructs are given separate non-terminals
             symbols = []Symbol { s }
         }
-        production := &Production { NORMAL, left, symbols, name }
+        production := &Production { NORMAL, left, symbols, visitor }
         g.productions = append(g.productions, production)
         if ok { g.labels[production] = label }
     }
@@ -347,7 +344,7 @@ func (p Production)  String() string {
     } else {
         builder.WriteString(" ε")
     }
-    if p.Name != "" { builder.WriteString(fmt.Sprintf("  #%s", p.Name)) }
+    if p.Visitor != "" { builder.WriteString(fmt.Sprintf("  #%s", p.Visitor)) }
     return builder.String()
 }
 

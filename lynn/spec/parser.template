@@ -1,0 +1,116 @@
+package /*{0}*/
+
+import (
+	"fmt"
+	"strings"
+)
+
+// Production type enum. Either NORMAL, AUXILIARY, FLATTEN, OR REMOVED.
+type ProductionType uint
+const (NORMAL ProductionType = iota; AUXILIARY; FLATTEN; REMOVED)
+// Production data struct. Expresses a sequence of symbols that a given non-terminal may be expanded to in a grammar.
+type ProductionData struct {
+    Type         ProductionType
+    Left, Length int
+    Visitor      string
+}
+
+// Action type enum. Either SHIFT, REDUCE, or ACCEPT.
+type ActionType uint
+const (SHIFT ActionType = iota; REDUCE; ACCEPT)
+// Parse table action entry struct. Holds action type and integer parameter.
+type ActionEntry struct {
+    Type  ActionType
+    Value int // For SHIFT actions, value represents a state identifier, for REDUCE actions, a production identifier
+}
+
+var productions = []ProductionData {
+/*{1}*/
+}
+var actionTable = []map[TokenType]ActionEntry {
+/*{2}*/
+}
+var gotoTable = []map[int]int {
+/*{3}*/
+}
+
+type Parser struct {
+    lexer *Lexer
+}
+
+// Stack state struct. Holds the state identifier and the corresponding parse tree node.
+type StackState struct {
+    State int
+    Node  ParseTreeChild
+}
+
+// Parse tree child interface. May either be a Token or ParseTreeNode struct.
+type ParseTreeChild interface { String(indent string) string }
+type ParseTreeNode struct {
+    Visitor  string
+    Children []ParseTreeChild
+}
+
+func NewParser(lexer *Lexer) *Parser { return &Parser { lexer } }
+func (p *Parser) Parse() *ParseTreeNode {
+    token := p.lexer.Token
+    stack := []StackState { { 0, nil } }
+    for {
+        state := stack[len(stack) - 1].State
+        action, ok := actionTable[state][token.Type]
+        if !ok {
+            fmt.Printf("Syntax error: Unexpected token %q - %d:%d\n", token.Value, token.Start.Line, token.Start.Col)
+            return nil
+        }
+        switch action.Type {
+        case SHIFT:
+            // Add new state to the stack along with token
+            stack = append(stack, StackState { action.Value, token })
+            token = p.lexer.Next()
+        case REDUCE:
+            // Find production to reduce by
+            production := &productions[action.Value]
+            i := len(stack) - production.Length
+            var node ParseTreeChild
+            switch production.Type {
+            case NORMAL:
+                // Collect child nodes from current states on the stack and create node for reduction
+                children := make([]ParseTreeChild, production.Length)
+                for i, s := range stack[i:] { children[i] = s.Node }
+                node = &ParseTreeNode { production.Visitor, children }
+            case FLATTEN:
+                list := stack[i].Node.(*ParseTreeNode)
+                element := stack[i + 1].Node
+                list.Children = append(list.Children, element)
+                node = list
+            case AUXILIARY: node = stack[i].Node
+            case REMOVED: node = nil
+            }
+            // Find next state based on goto table
+            state := stack[i - 1].State
+            next := gotoTable[state][production.Left]
+            // Add new state to stack
+            stack = stack[:i]
+            stack = append(stack, StackState { next, node })
+        case ACCEPT: return stack[1].Node.(*ParseTreeNode)
+        }
+    }
+}
+
+// FOR DEBUG PURPOSES:
+func (t Token) String(indent string) string { return fmt.Sprintf("%s<%s %s>", indent, t.Type, t.Value) }
+// FOR DEBUG PURPOSES:
+func (n *ParseTreeNode) String(indent string) string {
+    children := make([]string, len(n.Children))
+    next := indent + "  "
+    for i, c := range n.Children {
+        str := "\n"
+        if c == nil {
+            str += fmt.Sprintf("%s<nil>", next)
+        } else {
+            str += c.String(next)
+        }
+        children[i] = str
+    }
+    return fmt.Sprintf("%s[%s]%s", indent, n.Visitor, strings.Join(children, ""))
+}
