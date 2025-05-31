@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"unicode"
 )
+
+// TODO: Wrap parsing and compilation together into cleaner API
 
 func CompileLexer(file string, grammar *GrammarNode, ranges []Range, dfa LDFA) {
     const LEXER_TEMPLATE string = "lynn/spec/lexer.template"
@@ -95,6 +98,8 @@ func CompileParser(file string, grammar *GrammarNode, table LRParseTable) {
     // Format production data
     // Remove last production, which is the augmented start production
     productions := make([]string, len(table.Grammar.Productions) - 1)
+    existing := make(map[string]struct{})
+    visitors, dispatchers := make([]string, 0), make([]string, 0)
     for i, p := range table.Grammar.Productions[:len(productions)] {
         var s string
         switch p.Type {
@@ -105,6 +110,15 @@ func CompileParser(file string, grammar *GrammarNode, table LRParseTable) {
         }
         productions[i] = fmt.Sprintf("    { %s, %d, %d, \"%s\" },",
             s, nonTerminalIndices[p.Left], len(p.Right), p.Visitor)
+        // Add visitor entries and dispatcher lines
+        if len(p.Visitor) == 0 { continue }
+        if _, ok := existing[p.Visitor]; !ok {
+            existing[p.Visitor] = struct{}{}
+            n := []rune(p.Visitor); n[0] = unicode.ToUpper(n[0])
+            name := "Visit" + string(n)
+            visitors = append(visitors, fmt.Sprintf("    %s(node *ParseTreeNode) T", name))
+            dispatchers = append(dispatchers, fmt.Sprintf("    case \"%s\": return visitor.%s(node)", p.Visitor, name))
+        }
     }
     // Format action table
     actionTable := make([]string, len(table.Action))
@@ -148,6 +162,8 @@ func CompileParser(file string, grammar *GrammarNode, table LRParseTable) {
         "/*{1}*/", strings.Join(productions, "\n"),
         "/*{2}*/", strings.Join(actionTable, "\n"),
         "/*{3}*/", strings.Join(gotoTable, "\n"),
+        "/*{4}*/", strings.Join(visitors, "\n"),
+        "/*{5}*/", strings.Join(dispatchers, "\n"),
     }
     result := strings.NewReplacer(pairs...).Replace(template)
     // Write modified template to lexer program file
@@ -158,6 +174,7 @@ func CompileParser(file string, grammar *GrammarNode, table LRParseTable) {
     f.WriteString(result)
 }
 
-// TODO: Parse tree visitor generator
 // TODO: Remove Lexer.Token, Lexer.Match(), and initial call to Lexer.Next()
+// TODO: Use lexer interface in parser to allow preprocessing
 // TODO: Remove legacy parser after bootstrapping
+// TODO: Parser error handler

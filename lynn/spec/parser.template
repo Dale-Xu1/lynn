@@ -43,11 +43,23 @@ var gotoTable = []map[int]int {
 
 // Parser struct. Converts token stream to parse tree.
 type Parser struct {
-    lexer *Lexer
+    lexer   *Lexer
+    handler ParserErrorHandler
+}
+
+// Base visitor struct. Describes functions necessary to implement to traverse parse tree.
+type BaseVisitor[T any] interface {
+/*{4}*/
+}
+
+// Function called when the parser encounters an error.
+type ParserErrorHandler func (token Token)
+var DEFAULT_PARSER_HANDLER = func (token Token) {
+    fmt.Printf("Syntax error: Unexpected token %q - %d:%d\n", token.Value, token.Start.Line, token.Start.Col)
 }
 
 // Returns new parser struct.
-func NewParser(lexer *Lexer) *Parser { return &Parser { lexer } }
+func NewParser(lexer *Lexer, handler ParserErrorHandler) *Parser { return &Parser { lexer, handler } }
 // Generates parse tree based on token stream from lexer.
 func (p *Parser) Parse() *ParseTreeNode {
     // Stack state struct. Holds the state identifier and the corresponding parse tree node.
@@ -101,6 +113,14 @@ func (p *Parser) Parse() *ParseTreeNode {
             stack = append(stack, StackState { next, node })
         case ACCEPT: return stack[1].node.(*ParseTreeNode)
         }
+    }
+}
+
+// Given a parse tree node, dispatches the corresponding function in the visitor.
+func VisitNode[T any](visitor BaseVisitor[T], node *ParseTreeNode) T {
+    switch node.Visitor {
+/*{5}*/
+    default: panic("Invalid parse tree node passed to VisitNode()")
     }
 }
 
