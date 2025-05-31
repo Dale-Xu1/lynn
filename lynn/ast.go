@@ -114,3 +114,72 @@ func (n ClassNode) String() string {
     for i, r := range n.Ranges { ranges[i] = r.String() }
     return fmt.Sprintf("[%s]", strings.Join(ranges, ","))
 }
+
+// TODO: Parse tree to AST
+// TODO: Allow access via names instead of indices
+type ParseTreeVisitor struct { }
+func NewParseTreeVisitor() ParseTreeVisitor { return ParseTreeVisitor { } }
+
+func (v ParseTreeVisitor) VisitGrammar(node *ParseTreeNode) AST {
+    rules, tokens, fragments := make([]*RuleNode, 0), make([]*TokenNode, 0), make([]*FragmentNode, 0)
+    for _, node := range node.Children[0].(*ParseTreeNode).Children {
+        switch rule := VisitNode(v, node.(*ParseTreeNode)).(type) {
+        case *RuleNode: rules = append(rules, rule)
+        case *TokenNode: tokens = append(tokens, rule)
+        case *FragmentNode: fragments = append(fragments, rule)
+        }
+    }
+    return &GrammarNode { rules, tokens, fragments }
+}
+
+func (v ParseTreeVisitor) VisitRuleStmt(node *ParseTreeNode) AST {
+    return &RuleNode { }
+}
+
+func (v ParseTreeVisitor) VisitTokenStmt(node *ParseTreeNode) AST {
+    return &TokenNode { }
+}
+
+func (v ParseTreeVisitor) VisitFragmentStmt(node *ParseTreeNode) AST {
+    return &FragmentNode { }
+}
+
+func (v ParseTreeVisitor) VisitUnionExpr(node *ParseTreeNode) AST {
+    panic("TODO")
+}
+
+func (v ParseTreeVisitor) VisitLabelExpr(node *ParseTreeNode) AST {
+    panic("TODO")
+}
+
+func (v ParseTreeVisitor) VisitConcatExpr(node *ParseTreeNode) AST {
+    panic("TODO")
+}
+
+func (v ParseTreeVisitor) VisitNameExpr(node *ParseTreeNode) AST {
+    panic("TODO")
+}
+
+func (v ParseTreeVisitor) VisitQuantifierExpr(node *ParseTreeNode) AST {
+    panic("TODO")
+}
+
+func (v ParseTreeVisitor) VisitGroupExpr(node *ParseTreeNode) AST {
+    panic("TODO")
+}
+
+func (v ParseTreeVisitor) VisitIdentifierExpr(node *ParseTreeNode) AST {
+    panic("TODO")
+}
+
+func (v ParseTreeVisitor) VisitStringExpr(node *ParseTreeNode) AST {
+    panic("TODO")
+}
+
+func (v ParseTreeVisitor) VisitClassExpr(node *ParseTreeNode) AST {
+    panic("TODO")
+}
+
+func (v ParseTreeVisitor) VisitAnyExpr(node *ParseTreeNode) AST {
+    panic("TODO")
+}

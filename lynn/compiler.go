@@ -177,4 +177,3 @@ func CompileParser(file string, grammar *GrammarNode, table LRParseTable) {
 // TODO: Remove Lexer.Token, Lexer.Match(), and initial call to Lexer.Next()
 // TODO: Use lexer interface in parser to allow preprocessing
 // TODO: Remove legacy parser after bootstrapping
-// TODO: Parser error handler
