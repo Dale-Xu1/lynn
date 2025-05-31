@@ -52,6 +52,13 @@ type LabelNode struct {
     Location      Location
 }
 
+// Node representing an alias. Specifies the alias identifier and the corresponding expression.
+type AliasNode struct {
+    Identifier *IdentifierNode
+    Expression AST
+    Location   Location
+}
+
 // Node representing a concatenation operation. Requires that one expression immediately follow the preceding expression.
 type ConcatNode struct {
     A, B AST
@@ -103,6 +110,7 @@ func (n LabelNode) String() string {
     }
     return fmt.Sprintf("(%v) #%s %s", n.Expression, n.Identifier, assoc)
 }
+func (n AliasNode) String() string { return fmt.Sprintf("(%s = %v)", n.Identifier, n.Expression) }
 
 func (n ConcatNode) String() string { return fmt.Sprintf("(%v %v)", n.A, n.B) }
 func (n UnionNode) String() string { return fmt.Sprintf("(%v | %v)", n.A, n.B) }
@@ -156,7 +164,7 @@ func (v ParseTreeVisitor) VisitConcatExpr(node *ParseTreeNode) AST {
     panic("TODO")
 }
 
-func (v ParseTreeVisitor) VisitNameExpr(node *ParseTreeNode) AST {
+func (v ParseTreeVisitor) VisitAliasExpr(node *ParseTreeNode) AST {
     panic("TODO")
 }
 

@@ -9,7 +9,7 @@ rule expr
     : expr "|" expr                        #unionExpr
     | expr "#" IDENTIFIER (LEFT | RIGHT)?  #labelExpr
     | expr expr                            #concatExpr
-    | IDENTIFIER "=" expr                  #nameExpr
+    | IDENTIFIER "=" expr                  #aliasExpr
     | expr ("+" | "*" | "?")               #quantifierExpr
     | "(" expr ")"                         #groupExpr
     | IDENTIFIER                           #identifierExpr

@@ -106,28 +106,14 @@ func (g *GrammarGenerator) flattenProductions(left NonTerminal, expression AST) 
         cases = []AST { expression }
     }
     for _, node := range cases {
+        // If a label exists, get visitor name, otherwise default to non-terminal name
         label, ok := node.(*LabelNode)
         visitor := string(left)
         if ok { node = label.Expression; visitor = label.Identifier.Name }
-        // For each case, flatten concatenated nodes
-        var nodes []AST
-        if n, ok := node.(*ConcatNode); ok {
-            nodes = flattenConcat(n, make([]AST, 0))
-        } else {
-            // For unions of multiple productions, ensure option/repeat constructs are given separate non-terminals
-            nodes = []AST { node }
-        }
-        // Convert nodes in list to symbols
-        symbols := make([]Symbol, 0, len(nodes))
-        for _, n := range nodes {
-            // TODO: Add NameNode to legacy parser
-            // Aliases should be intercepted here (and made illegal in deeper expressions)
-            // Each production will have a map between aliases and indices associated with it
-            s := g.expandExpressionCFG(left, n)
-            if s != nil { symbols = append(symbols, s) }
-        }
-        production := &Production { NORMAL, left, symbols, visitor }
+        // For each case, flatten concatenated nodes and convert nodes in list to symbols
+        production := g.flattenConcatCFG(left, node, visitor)
         g.productions = append(g.productions, production)
+        // Associate production with label node for later use in disambiguation
         if ok { g.labels[production] = label }
     }
 }
@@ -154,8 +140,7 @@ func (g *GrammarGenerator) expressionCFG(left NonTerminal, expression AST) {
                 &Production { FLATTEN, left, []Symbol { left, t }, "" }, &Production { NORMAL, left, []Symbol { t }, "" })
         }
     // New non-terminals are auxiliary when production is for a non-derived non-terminal
-    case *ConcatNode:
-        g.productions = append(g.productions, &Production { NORMAL, left, g.flattenConcatCFG(left, node), "" })
+    case *ConcatNode: g.productions = append(g.productions, g.flattenConcatCFG(left, node, ""))
     case *UnionNode: g.flattenUnionCFG(left, node)
     default:
         if s, ok := g.literalCFG(node); s != nil {
@@ -180,29 +165,43 @@ func (g *GrammarGenerator) flattenUnionCFG(left NonTerminal, node *UnionNode) {
     cases := flattenUnion(node, make([]AST, 0))
     // For each case, flatten concatenated nodes
     for _, node := range cases {
-        var production *Production
         if n, ok := node.(*ConcatNode); ok {
             // Do not generate new non-terminal if the production is a concatenation
-            production = &Production { NORMAL, left, g.flattenConcatCFG(left, n), "" }
+            g.productions = append(g.productions, g.flattenConcatCFG(left, n, ""))
         } else if s := g.expandExpressionCFG(left, node); s != nil {
             // For unions of multiple productions, ensure option/repeat constructs are given separate non-terminals
-            production = &Production { AUXILIARY, left, []Symbol { s }, "" }
+            g.productions = append(g.productions, &Production { AUXILIARY, left, []Symbol { s }, "" })
         }
-        g.productions = append(g.productions, production)
     }
 }
 
 // For a given concatenated string of nodes from the AST, create production after generating list of symbols.
-func (g *GrammarGenerator) flattenConcatCFG(left NonTerminal, node *ConcatNode) []Symbol {
+func (g *GrammarGenerator) flattenConcatCFG(left NonTerminal, expression AST, visitor string) *Production {
     // Flatten concatenated nodes to obtain symbols of each production
-    nodes := flattenConcat(node, make([]AST, 0))
-    symbols := make([]Symbol, 0, len(nodes))
+    var nodes []AST
+    if n, ok := expression.(*ConcatNode); ok {
+        nodes = flattenConcat(n, make([]AST, 0))
+    } else {
+        nodes = []AST { expression }
+    }
     // Convert nodes in list to symbols
-    for _, n := range nodes {
+    symbols, aliases := make([]Symbol, 0, len(nodes)), make(map[string]int)
+    for i, n := range nodes {
+        // Intercept aliases within concatenation expressions (not allowed elsewhere)
+        // Build map between aliases and indices associated with the current production
+        if a, ok := n.(*AliasNode); ok {
+            n = a.Expression
+            aliases[a.Identifier.Name] = i
+        }
         s := g.expandExpressionCFG(left, n)
         if s != nil { symbols = append(symbols, s) }
     }
-    return symbols
+    production := &Production { NORMAL, left, symbols, visitor }
+    // TODO: Get this information to the compiler
+    if len(aliases) > 0 {
+        fmt.Println(aliases)
+    }
+    return production
 }
 
 // Converts a given literal node from the AST to a CFG symbol.
@@ -221,6 +220,7 @@ func (g *GrammarGenerator) literalCFG(expression AST) (Symbol, bool) {
     case *ClassNode:
         fmt.Printf("Generation error: Classes cannot be used in rule expressions - %d:%d\n", node.Location.Line, node.Location.Col)
     case *LabelNode: fmt.Printf("Generation error: Invalid use of label - %d:%d\n", node.Location.Line, node.Location.Col)
+    case *AliasNode: fmt.Printf("Generation error: Invalid use of alias - %d:%d\n", node.Location.Line, node.Location.Col)
     default: return nil, false
     }
     return nil, true

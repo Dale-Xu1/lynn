@@ -71,7 +71,7 @@ func (p *LegacyParser) parseRule() AST {
 
 // Represents operation precedence as an enumerated integer.
 type Precedence uint
-const (UNION Precedence = iota; LABEL; CONCAT; QUANTIFIER)
+const (UNION Precedence = iota; LABEL; CONCAT; ALIAS; QUANTIFIER)
 
 func (p *LegacyParser) parseExpressionDefault() AST { return p.parseExpression(UNION) }
 func (p *LegacyParser) parseExpression(precedence Precedence) AST {
@@ -85,6 +85,7 @@ func (p *LegacyParser) parseExpression(precedence Precedence) AST {
         case HASH: next = LABEL
         case L_PAREN, IDENTIFIER, STRING, CLASS, DOT: // All possible tokens for the beginning of a regular expression
             next = CONCAT
+        case EQUAL: next = ALIAS
         case PLUS, STAR, QUESTION: next = QUANTIFIER
         default: break main
         }
@@ -107,6 +108,10 @@ func (p *LegacyParser) parseExpression(precedence Precedence) AST {
                 assoc = RIGHT_ASSOC
             }
             left = &LabelNode { left, &IdentifierNode { token.Value, token.Start }, assoc, t.Start }
+        case p.lexer.Match(EQUAL):
+            id, ok := left.(*IdentifierNode)
+            if !ok { return nil }
+            left = &AliasNode { id, p.parseExpression(next), t.Start }
         case p.lexer.Match(QUESTION): left = &OptionNode { left }
         case p.lexer.Match(STAR): left = &RepeatNode { left }
         case p.lexer.Match(PLUS): left = &RepeatOneNode { left }
