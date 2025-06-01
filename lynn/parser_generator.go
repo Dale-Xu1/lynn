@@ -24,6 +24,15 @@ type LRParseTable struct {
     Goto    []map[NonTerminal]int
 }
 
+// Action type enum. Either SHIFT, REDUCE, or ACCEPT.
+type ActionType uint
+const (SHIFT ActionType = iota; REDUCE; ACCEPT)
+// Parse table action entry struct. Holds action type and integer parameter.
+type ActionEntry struct {
+    Type  ActionType
+    Value int // For SHIFT actions, value represents a state identifier, for REDUCE actions, a production identifier
+}
+
 // LALR parser generator struct. Converts a given grammar to an LR(1) parse table.
 type LALRParserGenerator struct {
     grammar   *Grammar

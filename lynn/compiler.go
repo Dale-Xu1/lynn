@@ -9,7 +9,7 @@ import (
 
 // TODO: Wrap parsing and compilation together into cleaner API
 
-func CompileLexer(file string, grammar *GrammarNode, ranges []Range, dfa LDFA) {
+func CompileLexer(file string, dfa LDFA, ranges []Range, grammar *GrammarNode) {
     const LEXER_TEMPLATE string = "lynn/spec/lexer.template"
     // Read template information
     data, err := os.ReadFile(LEXER_TEMPLATE)
@@ -78,7 +78,7 @@ func CompileLexer(file string, grammar *GrammarNode, ranges []Range, dfa LDFA) {
     f.WriteString(result)
 }
 
-func CompileParser(file string, grammar *GrammarNode, table LRParseTable) {
+func CompileParser(file string, table LRParseTable, maps map[*Production]map[string]int, grammar *GrammarNode) {
     const PARSER_TEMPLATE string = "lynn/spec/parser.template"
     // Read template information
     data, err := os.ReadFile(PARSER_TEMPLATE)
@@ -101,15 +101,7 @@ func CompileParser(file string, grammar *GrammarNode, table LRParseTable) {
     existing := make(map[string]struct{})
     visitors, dispatchers := make([]string, 0), make([]string, 0)
     for i, p := range table.Grammar.Productions[:len(productions)] {
-        var s string
-        switch p.Type {
-        case NORMAL:    s = "NORMAL"
-        case AUXILIARY: s = "AUXILIARY"
-        case FLATTEN:   s = "FLATTEN"
-        case REMOVED:   s = "REMOVED"
-        }
-        productions[i] = fmt.Sprintf("    { %s, %d, %d, \"%s\" },",
-            s, nonTerminalIndices[p.Left], len(p.Right), p.Visitor)
+        productions[i] = fmt.Sprintf("    { %d, %d, %d, \"%s\" },", p.Type, nonTerminalIndices[p.Left], len(p.Right), p.Visitor)
         // Add visitor entries and dispatcher lines
         if len(p.Visitor) == 0 { continue }
         if _, ok := existing[p.Visitor]; !ok {
@@ -131,13 +123,7 @@ func CompileParser(file string, grammar *GrammarNode, table LRParseTable) {
         // Format action entries for each state
         out := make([]string, 0, l)
         for t, entry := range entries {
-            var s string
-            switch entry.Type {
-            case SHIFT:  s = "SHIFT"
-            case REDUCE: s = "REDUCE"
-            case ACCEPT: s = "ACCEPT"
-            }
-            out = append(out, fmt.Sprintf("%d: { %s, %d }", tokenIndices[string(t)], s, entry.Value))
+            out = append(out, fmt.Sprintf("%d: { %d, %d }", tokenIndices[string(t)], entry.Type, entry.Value))
         }
         actionTable[i] = fmt.Sprintf("    { %s },", strings.Join(out, ", "))
     }

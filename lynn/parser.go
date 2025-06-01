@@ -5,114 +5,131 @@ import (
 	"strings"
 )
 
-// Production type enum. Either NORMAL, AUXILIARY, FLATTEN, OR REMOVED.
-type ProductionType uint
-const (NORMAL ProductionType = iota; AUXILIARY; FLATTEN; REMOVED)
 // Production data struct. Expresses a sequence of symbols that a given non-terminal may be expanded to in a grammar.
-type ProductionData struct {
-    Type         ProductionType
-    Left, Length int
-    Visitor      string
+type productionData struct {
+    Type, Left, Length int
+    Visitor            string
 }
-
-// Action type enum. Either SHIFT, REDUCE, or ACCEPT.
-type ActionType uint
-const (SHIFT ActionType = iota; REDUCE; ACCEPT)
 // Parse table action entry struct. Holds action type and integer parameter.
-type ActionEntry struct {
-    Type  ActionType
-    Value int // For SHIFT actions, value represents a state identifier, for REDUCE actions, a production identifier
+type actionEntry struct {
+    Type, Value int // For 0 actions, value represents a state identifier, for 1 actions, a production identifier
 }
 
 // Parse tree child interface. May either be a Token or ParseTreeNode struct.
 type ParseTreeChild interface { string(indent string) string }
 type ParseTreeNode struct {
-    Visitor  string
+    data     *productionData
     Children []ParseTreeChild
 }
 
-var productions = []ProductionData {
-    { FLATTEN, 3, 2, "" },
-    { NORMAL, 3, 0, "" },
-    { NORMAL, 0, 1, "grammar" },
-    { NORMAL, 1, 5, "ruleStmt" },
-    { NORMAL, 4, 2, "" },
-    { REMOVED, 4, 0, "" },
-    { NORMAL, 1, 6, "tokenStmt" },
-    { NORMAL, 1, 5, "fragmentStmt" },
-    { NORMAL, 2, 3, "unionExpr" },
-    { AUXILIARY, 5, 1, "" },
-    { AUXILIARY, 5, 1, "" },
-    { REMOVED, 5, 0, "" },
-    { NORMAL, 7, 4, "labelExpr" },
-    { NORMAL, 8, 2, "concatExpr" },
-    { NORMAL, 9, 3, "aliasExpr" },
-    { AUXILIARY, 6, 1, "" },
-    { AUXILIARY, 6, 1, "" },
-    { AUXILIARY, 6, 1, "" },
-    { NORMAL, 10, 2, "quantifierExpr" },
-    { NORMAL, 10, 3, "groupExpr" },
-    { NORMAL, 10, 1, "identifierExpr" },
-    { NORMAL, 10, 1, "stringExpr" },
-    { NORMAL, 10, 1, "classExpr" },
-    { NORMAL, 10, 1, "anyExpr" },
-    { AUXILIARY, 2, 1, "" },
-    { AUXILIARY, 7, 1, "" },
-    { AUXILIARY, 8, 1, "" },
-    { AUXILIARY, 9, 1, "" },
+var productions = []productionData {
+    { 2, 3, 2, "" },
+    { 0, 3, 0, "" },
+    { 0, 0, 1, "grammar" },
+    { 0, 1, 5, "ruleStmt" },
+    { 0, 4, 2, "" },
+    { 3, 4, 0, "" },
+    { 0, 1, 6, "tokenStmt" },
+    { 0, 1, 5, "fragmentStmt" },
+    { 0, 2, 3, "unionExpr" },
+    { 1, 5, 1, "" },
+    { 1, 5, 1, "" },
+    { 3, 5, 0, "" },
+    { 0, 7, 4, "labelExpr" },
+    { 0, 8, 2, "concatExpr" },
+    { 0, 9, 3, "aliasExpr" },
+    { 1, 6, 1, "" },
+    { 1, 6, 1, "" },
+    { 1, 6, 1, "" },
+    { 0, 10, 2, "quantifierExpr" },
+    { 0, 10, 3, "groupExpr" },
+    { 0, 10, 1, "identifierExpr" },
+    { 0, 10, 1, "stringExpr" },
+    { 0, 10, 1, "classExpr" },
+    { 0, 10, 1, "anyExpr" },
+    { 1, 2, 1, "" },
+    { 1, 7, 1, "" },
+    { 1, 8, 1, "" },
+    { 1, 9, 1, "" },
 }
-var actionTable = []map[TokenType]ActionEntry {
-    { 23: { REDUCE, 1 }, 3: { REDUCE, 1 }, 4: { REDUCE, 1 }, 2: { REDUCE, 1 } },
-    { 23: { REDUCE, 2 }, 2: { SHIFT, 4 }, 4: { SHIFT, 5 }, 3: { SHIFT, 3 } },
-    { 23: { ACCEPT, 0 } },
-    { 20: { SHIFT, 7 } },
-    { 20: { SHIFT, 8 } },
-    { 20: { SHIFT, 9 } },
-    { 4: { REDUCE, 0 }, 23: { REDUCE, 0 }, 3: { REDUCE, 0 }, 2: { REDUCE, 0 } },
-    { 16: { SHIFT, 10 } },
-    { 16: { SHIFT, 11 } },
-    { 16: { SHIFT, 12 } },
-    { 21: { SHIFT, 15 }, 17: { SHIFT, 17 }, 20: { SHIFT, 14 }, 22: { SHIFT, 21 }, 12: { SHIFT, 22 } },
-    { 20: { SHIFT, 14 }, 17: { SHIFT, 17 }, 21: { SHIFT, 15 }, 12: { SHIFT, 22 }, 22: { SHIFT, 21 } },
-    { 12: { SHIFT, 22 }, 17: { SHIFT, 17 }, 20: { SHIFT, 14 }, 21: { SHIFT, 15 }, 22: { SHIFT, 21 } },
-    { 13: { REDUCE, 25 }, 3: { REDUCE, 25 }, 21: { SHIFT, 15 }, 22: { SHIFT, 21 }, 17: { SHIFT, 17 }, 18: { REDUCE, 25 }, 19: { REDUCE, 25 }, 4: { REDUCE, 25 }, 23: { REDUCE, 25 }, 14: { REDUCE, 25 }, 12: { SHIFT, 22 }, 20: { SHIFT, 14 }, 15: { REDUCE, 25 }, 2: { REDUCE, 25 } },
-    { 23: { REDUCE, 20 }, 21: { REDUCE, 20 }, 9: { REDUCE, 20 }, 14: { REDUCE, 20 }, 17: { REDUCE, 20 }, 22: { REDUCE, 20 }, 10: { REDUCE, 20 }, 20: { REDUCE, 20 }, 8: { SHIFT, 26 }, 15: { REDUCE, 20 }, 13: { REDUCE, 20 }, 18: { REDUCE, 20 }, 11: { REDUCE, 20 }, 4: { REDUCE, 20 }, 3: { REDUCE, 20 }, 19: { REDUCE, 20 }, 12: { REDUCE, 20 }, 2: { REDUCE, 20 } },
-    { 18: { REDUCE, 21 }, 13: { REDUCE, 21 }, 20: { REDUCE, 21 }, 10: { REDUCE, 21 }, 19: { REDUCE, 21 }, 22: { REDUCE, 21 }, 21: { REDUCE, 21 }, 3: { REDUCE, 21 }, 4: { REDUCE, 21 }, 11: { REDUCE, 21 }, 17: { REDUCE, 21 }, 15: { REDUCE, 21 }, 9: { REDUCE, 21 }, 2: { REDUCE, 21 }, 14: { REDUCE, 21 }, 12: { REDUCE, 21 }, 23: { REDUCE, 21 } },
-    { 2: { REDUCE, 27 }, 11: { SHIFT, 29 }, 10: { SHIFT, 27 }, 13: { REDUCE, 27 }, 19: { REDUCE, 27 }, 22: { REDUCE, 27 }, 20: { REDUCE, 27 }, 21: { REDUCE, 27 }, 14: { REDUCE, 27 }, 23: { REDUCE, 27 }, 17: { REDUCE, 27 }, 3: { REDUCE, 27 }, 12: { REDUCE, 27 }, 18: { REDUCE, 27 }, 9: { SHIFT, 30 }, 4: { REDUCE, 27 }, 15: { REDUCE, 27 } },
-    { 21: { SHIFT, 15 }, 20: { SHIFT, 14 }, 17: { SHIFT, 17 }, 22: { SHIFT, 21 }, 12: { SHIFT, 22 } },
-    { 13: { SHIFT, 33 }, 19: { SHIFT, 34 }, 15: { REDUCE, 5 } },
-    { 14: { SHIFT, 35 }, 18: { REDUCE, 24 }, 4: { REDUCE, 24 }, 23: { REDUCE, 24 }, 3: { REDUCE, 24 }, 13: { REDUCE, 24 }, 2: { REDUCE, 24 }, 19: { REDUCE, 24 }, 15: { REDUCE, 24 } },
-    { 4: { REDUCE, 26 }, 21: { REDUCE, 26 }, 2: { REDUCE, 26 }, 17: { REDUCE, 26 }, 20: { REDUCE, 26 }, 19: { REDUCE, 26 }, 3: { REDUCE, 26 }, 12: { REDUCE, 26 }, 14: { REDUCE, 26 }, 23: { REDUCE, 26 }, 15: { REDUCE, 26 }, 22: { REDUCE, 26 }, 18: { REDUCE, 26 }, 13: { REDUCE, 26 } },
-    { 10: { REDUCE, 22 }, 9: { REDUCE, 22 }, 15: { REDUCE, 22 }, 2: { REDUCE, 22 }, 20: { REDUCE, 22 }, 3: { REDUCE, 22 }, 21: { REDUCE, 22 }, 23: { REDUCE, 22 }, 12: { REDUCE, 22 }, 4: { REDUCE, 22 }, 13: { REDUCE, 22 }, 11: { REDUCE, 22 }, 14: { REDUCE, 22 }, 19: { REDUCE, 22 }, 18: { REDUCE, 22 }, 22: { REDUCE, 22 }, 17: { REDUCE, 22 } },
-    { 14: { REDUCE, 23 }, 9: { REDUCE, 23 }, 17: { REDUCE, 23 }, 2: { REDUCE, 23 }, 11: { REDUCE, 23 }, 15: { REDUCE, 23 }, 12: { REDUCE, 23 }, 3: { REDUCE, 23 }, 13: { REDUCE, 23 }, 20: { REDUCE, 23 }, 4: { REDUCE, 23 }, 21: { REDUCE, 23 }, 18: { REDUCE, 23 }, 19: { REDUCE, 23 }, 23: { REDUCE, 23 }, 22: { REDUCE, 23 }, 10: { REDUCE, 23 } },
-    { 13: { SHIFT, 33 }, 15: { SHIFT, 36 } },
-    { 13: { SHIFT, 33 }, 15: { SHIFT, 37 } },
-    { 3: { REDUCE, 13 }, 20: { REDUCE, 13 }, 17: { REDUCE, 13 }, 2: { REDUCE, 13 }, 18: { REDUCE, 13 }, 23: { REDUCE, 13 }, 4: { REDUCE, 13 }, 14: { REDUCE, 13 }, 22: { REDUCE, 13 }, 13: { REDUCE, 13 }, 12: { REDUCE, 13 }, 19: { REDUCE, 13 }, 21: { REDUCE, 13 }, 15: { REDUCE, 13 } },
-    { 12: { SHIFT, 22 }, 21: { SHIFT, 15 }, 22: { SHIFT, 21 }, 20: { SHIFT, 14 }, 17: { SHIFT, 17 } },
-    { 15: { REDUCE, 16 }, 13: { REDUCE, 16 }, 14: { REDUCE, 16 }, 17: { REDUCE, 16 }, 19: { REDUCE, 16 }, 20: { REDUCE, 16 }, 23: { REDUCE, 16 }, 2: { REDUCE, 16 }, 10: { REDUCE, 16 }, 21: { REDUCE, 16 }, 9: { REDUCE, 16 }, 4: { REDUCE, 16 }, 11: { REDUCE, 16 }, 3: { REDUCE, 16 }, 18: { REDUCE, 16 }, 12: { REDUCE, 16 }, 22: { REDUCE, 16 } },
-    { 3: { REDUCE, 18 }, 13: { REDUCE, 18 }, 4: { REDUCE, 18 }, 10: { REDUCE, 18 }, 17: { REDUCE, 18 }, 18: { REDUCE, 18 }, 19: { REDUCE, 18 }, 22: { REDUCE, 18 }, 11: { REDUCE, 18 }, 2: { REDUCE, 18 }, 21: { REDUCE, 18 }, 12: { REDUCE, 18 }, 23: { REDUCE, 18 }, 9: { REDUCE, 18 }, 20: { REDUCE, 18 }, 14: { REDUCE, 18 }, 15: { REDUCE, 18 } },
-    { 12: { REDUCE, 17 }, 9: { REDUCE, 17 }, 20: { REDUCE, 17 }, 14: { REDUCE, 17 }, 17: { REDUCE, 17 }, 22: { REDUCE, 17 }, 4: { REDUCE, 17 }, 2: { REDUCE, 17 }, 13: { REDUCE, 17 }, 18: { REDUCE, 17 }, 3: { REDUCE, 17 }, 21: { REDUCE, 17 }, 19: { REDUCE, 17 }, 10: { REDUCE, 17 }, 11: { REDUCE, 17 }, 23: { REDUCE, 17 }, 15: { REDUCE, 17 } },
-    { 19: { REDUCE, 15 }, 23: { REDUCE, 15 }, 13: { REDUCE, 15 }, 3: { REDUCE, 15 }, 18: { REDUCE, 15 }, 20: { REDUCE, 15 }, 9: { REDUCE, 15 }, 22: { REDUCE, 15 }, 4: { REDUCE, 15 }, 17: { REDUCE, 15 }, 15: { REDUCE, 15 }, 10: { REDUCE, 15 }, 2: { REDUCE, 15 }, 12: { REDUCE, 15 }, 11: { REDUCE, 15 }, 14: { REDUCE, 15 }, 21: { REDUCE, 15 } },
-    { 18: { SHIFT, 39 }, 13: { SHIFT, 33 } },
-    { 15: { SHIFT, 40 } },
-    { 12: { SHIFT, 22 }, 20: { SHIFT, 14 }, 21: { SHIFT, 15 }, 22: { SHIFT, 21 }, 17: { SHIFT, 17 } },
-    { 7: { SHIFT, 42 } },
-    { 20: { SHIFT, 43 } },
-    { 4: { REDUCE, 3 }, 3: { REDUCE, 3 }, 2: { REDUCE, 3 }, 23: { REDUCE, 3 } },
-    { 23: { REDUCE, 7 }, 4: { REDUCE, 7 }, 3: { REDUCE, 7 }, 2: { REDUCE, 7 } },
-    { 14: { REDUCE, 14 }, 15: { REDUCE, 14 }, 19: { REDUCE, 14 }, 13: { REDUCE, 14 }, 22: { REDUCE, 14 }, 2: { REDUCE, 14 }, 17: { REDUCE, 14 }, 20: { REDUCE, 14 }, 12: { REDUCE, 14 }, 3: { REDUCE, 14 }, 21: { REDUCE, 14 }, 4: { REDUCE, 14 }, 23: { REDUCE, 14 }, 18: { REDUCE, 14 } },
-    { 3: { REDUCE, 19 }, 17: { REDUCE, 19 }, 13: { REDUCE, 19 }, 9: { REDUCE, 19 }, 22: { REDUCE, 19 }, 14: { REDUCE, 19 }, 10: { REDUCE, 19 }, 18: { REDUCE, 19 }, 4: { REDUCE, 19 }, 19: { REDUCE, 19 }, 21: { REDUCE, 19 }, 2: { REDUCE, 19 }, 20: { REDUCE, 19 }, 23: { REDUCE, 19 }, 15: { REDUCE, 19 }, 12: { REDUCE, 19 }, 11: { REDUCE, 19 } },
-    { 2: { REDUCE, 6 }, 23: { REDUCE, 6 }, 3: { REDUCE, 6 }, 4: { REDUCE, 6 } },
-    { 14: { SHIFT, 35 }, 4: { REDUCE, 8 }, 15: { REDUCE, 8 }, 18: { REDUCE, 8 }, 13: { REDUCE, 8 }, 2: { REDUCE, 8 }, 23: { REDUCE, 8 }, 3: { REDUCE, 8 }, 19: { REDUCE, 8 } },
-    { 15: { REDUCE, 4 } },
-    { 6: { SHIFT, 44 }, 3: { REDUCE, 11 }, 4: { REDUCE, 11 }, 19: { REDUCE, 11 }, 14: { REDUCE, 11 }, 18: { REDUCE, 11 }, 5: { SHIFT, 45 }, 23: { REDUCE, 11 }, 15: { REDUCE, 11 }, 13: { REDUCE, 11 }, 2: { REDUCE, 11 } },
-    { 4: { REDUCE, 10 }, 18: { REDUCE, 10 }, 3: { REDUCE, 10 }, 23: { REDUCE, 10 }, 19: { REDUCE, 10 }, 2: { REDUCE, 10 }, 15: { REDUCE, 10 }, 13: { REDUCE, 10 }, 14: { REDUCE, 10 } },
-    { 19: { REDUCE, 9 }, 15: { REDUCE, 9 }, 18: { REDUCE, 9 }, 13: { REDUCE, 9 }, 3: { REDUCE, 9 }, 4: { REDUCE, 9 }, 14: { REDUCE, 9 }, 23: { REDUCE, 9 }, 2: { REDUCE, 9 } },
-    { 2: { REDUCE, 12 }, 13: { REDUCE, 12 }, 15: { REDUCE, 12 }, 23: { REDUCE, 12 }, 14: { REDUCE, 12 }, 4: { REDUCE, 12 }, 18: { REDUCE, 12 }, 19: { REDUCE, 12 }, 3: { REDUCE, 12 } },
+var actionTable = []map[TokenType]actionEntry {
+    { 23: { 1, 1 }, 2: { 1, 1 }, 3: { 1, 1 }, 4: { 1, 1 } },
+    { 23: { 2, 0 } },
+    { 3: { 0, 3 }, 4: { 0, 5 }, 2: { 0, 6 }, 23: { 1, 2 } },
+    { 20: { 0, 7 } },
+    { 3: { 1, 0 }, 2: { 1, 0 }, 4: { 1, 0 }, 23: { 1, 0 } },
+    { 20: { 0, 8 } },
+    { 20: { 0, 9 } },
+    { 16: { 0, 10 } },
+    { 16: { 0, 11 } },
+    { 16: { 0, 12 } },
+    { 22: { 0, 21 }, 20: { 0, 13 }, 12: { 0, 16 }, 21: { 0, 19 }, 17: { 0, 17 } },
+    { 20: { 0, 13 }, 17: { 0, 17 }, 12: { 0, 16 }, 21: { 0, 19 }, 22: { 0, 21 } },
+    { 22: { 0, 21 }, 21: { 0, 19 }, 17: { 0, 17 }, 12: { 0, 16 }, 20: { 0, 13 } },
+    { 23: { 1, 20 }, 20: { 1, 20 }, 2: { 1, 20 }, 3: { 1, 20 }, 17: { 1, 20 }, 15: { 1, 20 }, 11: { 1, 20 }, 13: { 1, 20 }, 14: { 1, 20 }, 10: { 1, 20 }, 8: { 0, 25 }, 4: { 1, 20 }, 18: { 1, 20 }, 9: { 1, 20 }, 21: { 1, 20 }, 12: { 1, 20 }, 19: { 1, 20 }, 22: { 1, 20 } },
+    { 22: { 0, 21 }, 20: { 0, 13 }, 17: { 0, 17 }, 21: { 0, 19 }, 13: { 1, 25 }, 23: { 1, 25 }, 18: { 1, 25 }, 2: { 1, 25 }, 12: { 0, 16 }, 3: { 1, 25 }, 15: { 1, 25 }, 4: { 1, 25 }, 19: { 1, 25 }, 14: { 1, 25 } },
+    { 13: { 0, 27 }, 19: { 0, 29 }, 15: { 1, 5 } },
+    { 11: { 1, 23 }, 22: { 1, 23 }, 23: { 1, 23 }, 2: { 1, 23 }, 20: { 1, 23 }, 18: { 1, 23 }, 3: { 1, 23 }, 19: { 1, 23 }, 14: { 1, 23 }, 21: { 1, 23 }, 4: { 1, 23 }, 12: { 1, 23 }, 9: { 1, 23 }, 13: { 1, 23 }, 10: { 1, 23 }, 17: { 1, 23 }, 15: { 1, 23 } },
+    { 20: { 0, 13 }, 17: { 0, 17 }, 12: { 0, 16 }, 22: { 0, 21 }, 21: { 0, 19 } },
+    { 3: { 1, 27 }, 2: { 1, 27 }, 20: { 1, 27 }, 11: { 0, 32 }, 17: { 1, 27 }, 13: { 1, 27 }, 21: { 1, 27 }, 22: { 1, 27 }, 15: { 1, 27 }, 14: { 1, 27 }, 9: { 0, 31 }, 12: { 1, 27 }, 23: { 1, 27 }, 10: { 0, 33 }, 18: { 1, 27 }, 4: { 1, 27 }, 19: { 1, 27 } },
+    { 3: { 1, 21 }, 12: { 1, 21 }, 9: { 1, 21 }, 23: { 1, 21 }, 17: { 1, 21 }, 18: { 1, 21 }, 21: { 1, 21 }, 2: { 1, 21 }, 11: { 1, 21 }, 22: { 1, 21 }, 4: { 1, 21 }, 13: { 1, 21 }, 15: { 1, 21 }, 20: { 1, 21 }, 14: { 1, 21 }, 10: { 1, 21 }, 19: { 1, 21 } },
+    { 21: { 1, 26 }, 12: { 1, 26 }, 3: { 1, 26 }, 17: { 1, 26 }, 4: { 1, 26 }, 14: { 1, 26 }, 18: { 1, 26 }, 22: { 1, 26 }, 23: { 1, 26 }, 13: { 1, 26 }, 15: { 1, 26 }, 20: { 1, 26 }, 2: { 1, 26 }, 19: { 1, 26 } },
+    { 12: { 1, 22 }, 19: { 1, 22 }, 11: { 1, 22 }, 22: { 1, 22 }, 10: { 1, 22 }, 23: { 1, 22 }, 4: { 1, 22 }, 20: { 1, 22 }, 21: { 1, 22 }, 2: { 1, 22 }, 18: { 1, 22 }, 9: { 1, 22 }, 17: { 1, 22 }, 14: { 1, 22 }, 3: { 1, 22 }, 13: { 1, 22 }, 15: { 1, 22 } },
+    { 14: { 0, 35 }, 2: { 1, 24 }, 4: { 1, 24 }, 23: { 1, 24 }, 19: { 1, 24 }, 3: { 1, 24 }, 15: { 1, 24 }, 13: { 1, 24 }, 18: { 1, 24 } },
+    { 13: { 0, 27 }, 15: { 0, 36 } },
+    { 15: { 0, 37 }, 13: { 0, 27 } },
+    { 20: { 0, 13 }, 21: { 0, 19 }, 12: { 0, 16 }, 22: { 0, 21 }, 17: { 0, 17 } },
+    { 18: { 1, 13 }, 2: { 1, 13 }, 21: { 1, 13 }, 19: { 1, 13 }, 22: { 1, 13 }, 12: { 1, 13 }, 17: { 1, 13 }, 3: { 1, 13 }, 14: { 1, 13 }, 20: { 1, 13 }, 23: { 1, 13 }, 13: { 1, 13 }, 15: { 1, 13 }, 4: { 1, 13 } },
+    { 17: { 0, 17 }, 21: { 0, 19 }, 12: { 0, 16 }, 22: { 0, 21 }, 20: { 0, 13 } },
+    { 15: { 0, 40 } },
+    { 7: { 0, 41 } },
+    { 13: { 0, 27 }, 18: { 0, 42 } },
+    { 2: { 1, 15 }, 9: { 1, 15 }, 15: { 1, 15 }, 14: { 1, 15 }, 3: { 1, 15 }, 10: { 1, 15 }, 22: { 1, 15 }, 4: { 1, 15 }, 23: { 1, 15 }, 19: { 1, 15 }, 21: { 1, 15 }, 18: { 1, 15 }, 20: { 1, 15 }, 13: { 1, 15 }, 12: { 1, 15 }, 11: { 1, 15 }, 17: { 1, 15 } },
+    { 21: { 1, 17 }, 2: { 1, 17 }, 10: { 1, 17 }, 9: { 1, 17 }, 4: { 1, 17 }, 18: { 1, 17 }, 13: { 1, 17 }, 14: { 1, 17 }, 3: { 1, 17 }, 17: { 1, 17 }, 20: { 1, 17 }, 23: { 1, 17 }, 15: { 1, 17 }, 12: { 1, 17 }, 22: { 1, 17 }, 11: { 1, 17 }, 19: { 1, 17 } },
+    { 19: { 1, 16 }, 20: { 1, 16 }, 22: { 1, 16 }, 12: { 1, 16 }, 11: { 1, 16 }, 3: { 1, 16 }, 23: { 1, 16 }, 21: { 1, 16 }, 17: { 1, 16 }, 9: { 1, 16 }, 2: { 1, 16 }, 10: { 1, 16 }, 14: { 1, 16 }, 18: { 1, 16 }, 15: { 1, 16 }, 4: { 1, 16 }, 13: { 1, 16 } },
+    { 13: { 1, 18 }, 19: { 1, 18 }, 15: { 1, 18 }, 22: { 1, 18 }, 23: { 1, 18 }, 21: { 1, 18 }, 18: { 1, 18 }, 9: { 1, 18 }, 20: { 1, 18 }, 12: { 1, 18 }, 14: { 1, 18 }, 4: { 1, 18 }, 11: { 1, 18 }, 2: { 1, 18 }, 3: { 1, 18 }, 10: { 1, 18 }, 17: { 1, 18 } },
+    { 20: { 0, 43 } },
+    { 23: { 1, 7 }, 3: { 1, 7 }, 4: { 1, 7 }, 2: { 1, 7 } },
+    { 23: { 1, 3 }, 4: { 1, 3 }, 2: { 1, 3 }, 3: { 1, 3 } },
+    { 23: { 1, 14 }, 18: { 1, 14 }, 4: { 1, 14 }, 3: { 1, 14 }, 14: { 1, 14 }, 13: { 1, 14 }, 2: { 1, 14 }, 20: { 1, 14 }, 12: { 1, 14 }, 17: { 1, 14 }, 19: { 1, 14 }, 15: { 1, 14 }, 22: { 1, 14 }, 21: { 1, 14 } },
+    { 13: { 1, 8 }, 18: { 1, 8 }, 3: { 1, 8 }, 2: { 1, 8 }, 15: { 1, 8 }, 23: { 1, 8 }, 4: { 1, 8 }, 19: { 1, 8 }, 14: { 0, 35 } },
+    { 23: { 1, 6 }, 3: { 1, 6 }, 2: { 1, 6 }, 4: { 1, 6 } },
+    { 15: { 1, 4 } },
+    { 18: { 1, 19 }, 22: { 1, 19 }, 13: { 1, 19 }, 12: { 1, 19 }, 4: { 1, 19 }, 14: { 1, 19 }, 21: { 1, 19 }, 9: { 1, 19 }, 15: { 1, 19 }, 11: { 1, 19 }, 3: { 1, 19 }, 17: { 1, 19 }, 10: { 1, 19 }, 19: { 1, 19 }, 2: { 1, 19 }, 20: { 1, 19 }, 23: { 1, 19 } },
+    { 2: { 1, 11 }, 5: { 0, 45 }, 4: { 1, 11 }, 23: { 1, 11 }, 14: { 1, 11 }, 15: { 1, 11 }, 18: { 1, 11 }, 6: { 0, 46 }, 13: { 1, 11 }, 3: { 1, 11 }, 19: { 1, 11 } },
+    { 3: { 1, 12 }, 23: { 1, 12 }, 15: { 1, 12 }, 14: { 1, 12 }, 19: { 1, 12 }, 2: { 1, 12 }, 13: { 1, 12 }, 4: { 1, 12 }, 18: { 1, 12 } },
+    { 2: { 1, 9 }, 14: { 1, 9 }, 3: { 1, 9 }, 23: { 1, 9 }, 18: { 1, 9 }, 15: { 1, 9 }, 19: { 1, 9 }, 4: { 1, 9 }, 13: { 1, 9 } },
+    { 4: { 1, 10 }, 18: { 1, 10 }, 14: { 1, 10 }, 2: { 1, 10 }, 19: { 1, 10 }, 13: { 1, 10 }, 3: { 1, 10 }, 23: { 1, 10 }, 15: { 1, 10 } },
 }
 var gotoTable = []map[int]int {
-    { 3: 1, 0: 2 },
-    { 1: 6 },
+    { 0: 1, 3: 2 },
+    { },
+    { 1: 4 },
+    { },
+    { },
+    { },
+    { },
+    { },
+    { },
+    { },
+    { 2: 15, 9: 20, 10: 18, 7: 22, 8: 14 },
+    { 7: 22, 8: 14, 9: 20, 10: 18, 2: 23 },
+    { 7: 22, 2: 24, 9: 20, 8: 14, 10: 18 },
+    { },
+    { 10: 18, 9: 26 },
+    { 4: 28 },
+    { },
+    { 2: 30, 7: 22, 10: 18, 9: 20, 8: 14 },
+    { 6: 34 },
+    { },
+    { },
+    { },
+    { },
+    { },
+    { },
+    { 10: 18, 9: 38 },
+    { },
+    { 7: 39, 8: 14, 9: 20, 10: 18 },
     { },
     { },
     { },
@@ -121,15 +138,6 @@ var gotoTable = []map[int]int {
     { },
     { },
     { },
-    { 9: 20, 8: 13, 10: 16, 2: 18, 7: 19 },
-    { 7: 19, 9: 20, 8: 13, 10: 16, 2: 23 },
-    { 10: 16, 9: 20, 7: 19, 8: 13, 2: 24 },
-    { 10: 16, 9: 25 },
-    { },
-    { },
-    { 6: 28 },
-    { 9: 20, 7: 19, 2: 31, 8: 13, 10: 16 },
-    { 4: 32 },
     { },
     { },
     { },
@@ -137,24 +145,7 @@ var gotoTable = []map[int]int {
     { },
     { },
     { },
-    { 9: 38, 10: 16 },
-    { },
-    { },
-    { },
-    { },
-    { },
-    { },
-    { 10: 16, 9: 20, 7: 41, 8: 13 },
-    { },
-    { },
-    { },
-    { },
-    { },
-    { },
-    { },
-    { },
-    { },
-    { 5: 46 },
+    { 5: 44 },
     { },
     { },
     { },
@@ -212,29 +203,31 @@ func (p *Parser) Parse() *ParseTreeNode {
             return nil
         }
         switch action.Type {
-        case SHIFT:
+        case 0:
             // For shift actions, add new state to the stack along with token
             stack = append(stack, StackState { action.Value, token })
             token = p.lexer.Next()
-        case REDUCE:
+        case 1:
             // For reduce actions, pop states off stack and merge children into one node based on production
             production := &productions[action.Value]
             i := len(stack) - production.Length
             var node ParseTreeChild
             switch production.Type {
-            case NORMAL:
+            case 0:
+                // Handle normal productions
                 // Collect child nodes from current states on the stack and create node for reduction
                 children := make([]ParseTreeChild, production.Length)
                 for i, s := range stack[i:] { children[i] = s.node }
-                node = &ParseTreeNode { production.Visitor, children }
-            case FLATTEN:
+                node = &ParseTreeNode { production, children }
+            case 2:
+                // Handle flatten productions
                 // Of the two nodes popped, preserve the first and add the second as a child of the first
                 // Results in quantified expressions in the grammar generating arrays of elements
                 list, element := stack[i].node.(*ParseTreeNode), stack[i + 1].node
                 list.Children = append(list.Children, element)
                 node = list
-            case AUXILIARY: node = stack[i].node // Passes child through without generating new node
-            case REMOVED:   node = nil // Adds a nil value
+            case 1: node = stack[i].node // For auxiliary productions, pass child through without generating new node
+            case 3: node = nil // Add nil value for removed productions
             }
             // Pop consumed states off stack
             // Given new state at the top of the stack, find next state based on the goto table
@@ -243,14 +236,15 @@ func (p *Parser) Parse() *ParseTreeNode {
             next := gotoTable[state][production.Left]
             // Add new state to top of the stack
             stack = append(stack, StackState { next, node })
-        case ACCEPT: return stack[1].node.(*ParseTreeNode)
+        // Return non-terminal in auxiliary start production on accept
+        case 2: return stack[1].node.(*ParseTreeNode)
         }
     }
 }
 
 // Given a parse tree node, dispatches the corresponding function in the visitor.
 func VisitNode[T any](visitor BaseVisitor[T], node *ParseTreeNode) T {
-    switch node.Visitor {
+    switch node.data.Visitor {
     case "grammar": return visitor.VisitGrammar(node)
     case "ruleStmt": return visitor.VisitRuleStmt(node)
     case "tokenStmt": return visitor.VisitTokenStmt(node)
@@ -286,5 +280,5 @@ func (n *ParseTreeNode) string(indent string) string {
         }
         children[i] = str
     }
-    return fmt.Sprintf("%s[%s]%s", indent, n.Visitor, strings.Join(children, ""))
+    return fmt.Sprintf("%s[%s]%s", indent, n.data.Visitor, strings.Join(children, ""))
 }

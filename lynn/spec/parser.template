@@ -5,36 +5,27 @@ import (
 	"strings"
 )
 
-// Production type enum. Either NORMAL, AUXILIARY, FLATTEN, OR REMOVED.
-type ProductionType uint
-const (NORMAL ProductionType = iota; AUXILIARY; FLATTEN; REMOVED)
 // Production data struct. Expresses a sequence of symbols that a given non-terminal may be expanded to in a grammar.
-type ProductionData struct {
-    Type         ProductionType
-    Left, Length int
-    Visitor      string
+type productionData struct {
+    Type, Left, Length int
+    Visitor            string
 }
-
-// Action type enum. Either SHIFT, REDUCE, or ACCEPT.
-type ActionType uint
-const (SHIFT ActionType = iota; REDUCE; ACCEPT)
 // Parse table action entry struct. Holds action type and integer parameter.
-type ActionEntry struct {
-    Type  ActionType
-    Value int // For SHIFT actions, value represents a state identifier, for REDUCE actions, a production identifier
+type actionEntry struct {
+    Type, Value int // For 0 actions, value represents a state identifier, for 1 actions, a production identifier
 }
 
 // Parse tree child interface. May either be a Token or ParseTreeNode struct.
 type ParseTreeChild interface { string(indent string) string }
 type ParseTreeNode struct {
-    Visitor  string
+    data     *productionData
     Children []ParseTreeChild
 }
 
-var productions = []ProductionData {
+var productions = []productionData {
 /*{1}*/
 }
-var actionTable = []map[TokenType]ActionEntry {
+var actionTable = []map[TokenType]actionEntry {
 /*{2}*/
 }
 var gotoTable = []map[int]int {
@@ -80,29 +71,31 @@ func (p *Parser) Parse() *ParseTreeNode {
             return nil
         }
         switch action.Type {
-        case SHIFT:
+        case 0:
             // For shift actions, add new state to the stack along with token
             stack = append(stack, StackState { action.Value, token })
             token = p.lexer.Next()
-        case REDUCE:
+        case 1:
             // For reduce actions, pop states off stack and merge children into one node based on production
             production := &productions[action.Value]
             i := len(stack) - production.Length
             var node ParseTreeChild
             switch production.Type {
-            case NORMAL:
+            case 0:
+                // Handle normal productions
                 // Collect child nodes from current states on the stack and create node for reduction
                 children := make([]ParseTreeChild, production.Length)
                 for i, s := range stack[i:] { children[i] = s.node }
-                node = &ParseTreeNode { production.Visitor, children }
-            case FLATTEN:
+                node = &ParseTreeNode { production, children }
+            case 2:
+                // Handle flatten productions
                 // Of the two nodes popped, preserve the first and add the second as a child of the first
                 // Results in quantified expressions in the grammar generating arrays of elements
                 list, element := stack[i].node.(*ParseTreeNode), stack[i + 1].node
                 list.Children = append(list.Children, element)
                 node = list
-            case AUXILIARY: node = stack[i].node // Passes child through without generating new node
-            case REMOVED:   node = nil // Adds a nil value
+            case 1: node = stack[i].node // For auxiliary productions, pass child through without generating new node
+            case 3: node = nil // Add nil value for removed productions
             }
             // Pop consumed states off stack
             // Given new state at the top of the stack, find next state based on the goto table
@@ -111,14 +104,15 @@ func (p *Parser) Parse() *ParseTreeNode {
             next := gotoTable[state][production.Left]
             // Add new state to top of the stack
             stack = append(stack, StackState { next, node })
-        case ACCEPT: return stack[1].node.(*ParseTreeNode)
+        // Return non-terminal in auxiliary start production on accept
+        case 2: return stack[1].node.(*ParseTreeNode)
         }
     }
 }
 
 // Given a parse tree node, dispatches the corresponding function in the visitor.
 func VisitNode[T any](visitor BaseVisitor[T], node *ParseTreeNode) T {
-    switch node.Visitor {
+    switch node.data.Visitor {
 /*{5}*/
     default: panic("Invalid parse tree node passed to VisitNode()")
     }
@@ -141,5 +135,5 @@ func (n *ParseTreeNode) string(indent string) string {
         }
         children[i] = str
     }
-    return fmt.Sprintf("%s[%s]%s", indent, n.Visitor, strings.Join(children, ""))
+    return fmt.Sprintf("%s[%s]%s", indent, n.data.Visitor, strings.Join(children, ""))
 }

@@ -20,6 +20,10 @@ type Grammar struct {
     Start        NonTerminal
     Productions  []*Production
 }
+
+// Production type enum. Either NORMAL, AUXILIARY, FLATTEN, OR REMOVED.
+type ProductionType uint
+const (NORMAL ProductionType = iota; AUXILIARY; FLATTEN; REMOVED)
 // Production struct. Expresses a sequence of symbols that a given non-terminal may be expanded to in a grammar.
 // Auxiliary productions must have a right-hand side with a single non-terminal.
 // Flatten productions must follow the form E -> E E_0.

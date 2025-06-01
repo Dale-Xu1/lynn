@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"lynn/lynn"
 	"os"
 )
@@ -22,14 +21,12 @@ func main() {
     parser := lynn.NewLegacyParser(lexer)
     ast := parser.Parse()
 
-    // generator := lynn.NewLexerGenerator()
-    // nfa, ranges := generator.GenerateNFA(ast)
-    // dfa := generator.NFAtoDFA(nfa, ranges)
-    // lynn.CompileLexer("lynn", ast, ranges, dfa)
+    generator := lynn.NewLexerGenerator()
+    nfa, ranges := generator.GenerateNFA(ast)
+    dfa := generator.NFAtoDFA(nfa, ranges)
+    lynn.CompileLexer("lynn", dfa, ranges, ast)
 
     grammar, maps := lynn.NewGrammarGenerator().GenerateCFG(ast)
-    _ = grammar
-    fmt.Println(maps)
-    // table := lynn.NewLALRParserGenerator().Generate(grammar)
-    // lynn.CompileParser("lynn", ast, table)
+    table := lynn.NewLALRParserGenerator().Generate(grammar)
+    lynn.CompileParser("lynn", table, maps, ast)
 }
