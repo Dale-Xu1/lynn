@@ -38,7 +38,7 @@ var gotoTable = []map[int]int {
 
 // Parser struct. Converts token stream to parse tree.
 type Parser struct {
-    lexer   *Lexer
+    lexer   BaseLexer
     handler ParserErrorHandler
 }
 
@@ -54,7 +54,7 @@ var DEFAULT_PARSER_HANDLER = func (token Token) {
 }
 
 // Returns new parser struct.
-func NewParser(lexer *Lexer, handler ParserErrorHandler) *Parser { return &Parser { lexer, handler } }
+func NewParser(lexer BaseLexer, handler ParserErrorHandler) *Parser { return &Parser { lexer, handler } }
 // Generates parse tree based on token stream from lexer.
 func (p *Parser) Parse() *ParseTreeNode {
     // Stack state struct. Holds the state identifier and the corresponding parse tree node.

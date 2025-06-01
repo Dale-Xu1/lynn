@@ -87,6 +87,8 @@ var transitions = []map[int]int {
 }
 var accept = map[int]TokenType { 31: 3, 6: 20, 7: 23, 11: 20, 15: 19, 16: 20, 17: 18, 25: 20, 8: 20, 10: 20, 35: 20, 40: 8, 43: 20, 55: 20, 27: 20, 39: 20, 42: 6, 47: 11, 49: 20, 3: 13, 34: 21, 45: 14, 48: 0, 30: 20, 9: 10, 19: 20, 20: 12, 28: 20, 44: 20, 50: 20, 51: 22, 1: 20, 12: 20, 21: 20, 29: 16, 32: 4, 37: 20, 38: 20, 46: 17, 22: 20, 41: 15, 53: 1, 2: 2, 18: 9, 23: 20, 54: 7, 56: 5 }
 
+// Base lexer interface.
+type BaseLexer interface { Next() Token }
 // Lexer struct. Produces token stream.
 type Lexer struct {
     stream  *InputStream

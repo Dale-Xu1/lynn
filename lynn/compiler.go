@@ -181,5 +181,3 @@ func CompileParser(file string, table LRParseTable, maps map[*Production]map[str
     defer f.Close()
     f.WriteString(result)
 }
-
-// TODO: Use lexer interface in parser to allow preprocessing
