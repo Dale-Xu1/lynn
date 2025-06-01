@@ -63,7 +63,7 @@ func (p *Parser) Parse() *ParseTreeNode {
         node  ParseTreeChild
     }
     // Initialize current token and stack
-    token, stack := p.lexer.Token, []StackState { { 0, nil } }
+    token, stack := p.lexer.Next(), []StackState { { 0, nil } }
     for {
         // Get the current state at the top of the stack and find the action to take
         // Next action is determined by action table given state index and the current token type

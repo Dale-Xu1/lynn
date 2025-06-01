@@ -182,6 +182,4 @@ func CompileParser(file string, table LRParseTable, maps map[*Production]map[str
     f.WriteString(result)
 }
 
-// TODO: Remove Lexer.Token, Lexer.Match(), and initial call to Lexer.Next()
 // TODO: Use lexer interface in parser to allow preprocessing
-// TODO: Remove legacy parser after bootstrapping

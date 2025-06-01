@@ -376,6 +376,11 @@ func (r Range) String() string {
     return fmt.Sprintf("%s-%s", formatChar(r.Min), formatChar(r.Max))
 }
 
+func formatChar(char rune) string {
+    str := fmt.Sprintf("%q", string(char))
+    return str[1:len(str) - 1]
+}
+
 // FOR DEBUG PURPOSES:
 // Prints all transitions formatted for use in a graph visualizer.
 func (n LNFA) PrintTransitions() {
