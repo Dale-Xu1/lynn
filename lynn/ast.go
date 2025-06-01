@@ -123,7 +123,6 @@ func (n ClassNode) String() string {
     return fmt.Sprintf("[%s]", strings.Join(ranges, ","))
 }
 
-// TODO: Parse tree to AST
 type ParseTreeVisitor struct { }
 func NewParseTreeVisitor() ParseTreeVisitor { return ParseTreeVisitor { } }
 
@@ -140,53 +139,84 @@ func (v ParseTreeVisitor) VisitGrammar(node *ParseTreeNode) AST {
 }
 
 func (v ParseTreeVisitor) VisitRuleStmt(node *ParseTreeNode) AST {
-    return &RuleNode { }
+    id := node.IDENTIFIER().(Token)
+    return &RuleNode { &IdentifierNode { id.Value, id.Start }, VisitNode(v, node.Expr()) }
 }
 
 func (v ParseTreeVisitor) VisitTokenStmt(node *ParseTreeNode) AST {
-    return &TokenNode { }
+    id := node.IDENTIFIER().(Token)
+    skip := node.S() != nil
+    return &TokenNode { &IdentifierNode { id.Value, id.Start }, VisitNode(v, node.Expr()), skip }
 }
 
 func (v ParseTreeVisitor) VisitFragmentStmt(node *ParseTreeNode) AST {
-    return &FragmentNode { }
+    id := node.IDENTIFIER().(Token)
+    return &FragmentNode { &IdentifierNode { id.Value, id.Start }, VisitNode(v, node.Expr()) }
 }
 
 func (v ParseTreeVisitor) VisitUnionExpr(node *ParseTreeNode) AST {
-    panic("TODO")
+    return &UnionNode { VisitNode(v, node.L()), VisitNode(v, node.R()) }
 }
 
 func (v ParseTreeVisitor) VisitLabelExpr(node *ParseTreeNode) AST {
-    panic("TODO")
+    id := node.IDENTIFIER().(Token)
+    var assoc AssociativityType
+    if t, ok := node.A().(Token); ok {
+        switch t.Type {
+        case LEFT:  assoc = LEFT_ASSOC
+        case RIGHT: assoc = RIGHT_ASSOC
+        default: panic("Invalid associativity type")
+        }
+    } else { assoc = NO_ASSOC }
+    return &LabelNode { VisitNode(v, node.Expr()), &IdentifierNode { id.Value, id.Start }, assoc, id.Start }
 }
 
 func (v ParseTreeVisitor) VisitConcatExpr(node *ParseTreeNode) AST {
-    panic("TODO")
+    return &ConcatNode { VisitNode(v, node.L()), VisitNode(v, node.R()) }
 }
 
 func (v ParseTreeVisitor) VisitAliasExpr(node *ParseTreeNode) AST {
-    panic("TODO")
+    id := node.IDENTIFIER().(Token)
+    return &AliasNode { &IdentifierNode { id.Value, id.Start }, VisitNode(v, node.Expr()), id.Start }
 }
 
 func (v ParseTreeVisitor) VisitQuantifierExpr(node *ParseTreeNode) AST {
-    panic("TODO")
+    switch node.Op().(Token).Type {
+    case QUESTION: return &OptionNode { VisitNode(v, node.Expr()) }
+    case STAR:     return &RepeatNode { VisitNode(v, node.Expr()) }
+    case PLUS:     return &RepeatOneNode { VisitNode(v, node.Expr()) }
+    default: panic("Invalid quantifier operation")
+    }
 }
 
-func (v ParseTreeVisitor) VisitGroupExpr(node *ParseTreeNode) AST {
-    panic("TODO")
-}
-
+func (v ParseTreeVisitor) VisitGroupExpr(node *ParseTreeNode) AST { return VisitNode(v, node.Expr()) }
 func (v ParseTreeVisitor) VisitIdentifierExpr(node *ParseTreeNode) AST {
-    panic("TODO")
+    id := node.IDENTIFIER().(Token)
+    return &IdentifierNode { id.Value, id.Start }
 }
 
 func (v ParseTreeVisitor) VisitStringExpr(node *ParseTreeNode) AST {
-    panic("TODO")
+    str := node.STRING().(Token)
+    value := str.Value[1:len(str.Value) - 1] // Remove quotation marks
+    return &StringNode { reduceString([]rune(value)), str.Start }
 }
 
 func (v ParseTreeVisitor) VisitClassExpr(node *ParseTreeNode) AST {
-    panic("TODO")
+    class := node.CLASS().(Token)
+    value, location := class.Value[1:len(class.Value) - 1], class.Start // Remove brackets
+    // If caret occurs, flag class as negated and remove caret
+    negated := len(value) > 0 && value[0] == '^'
+    var expanded []Range
+    if !negated {
+        expanded = expandClass(reduceString([]rune(value)), location)
+    } else {
+        expanded = negateRanges(expandClass(reduceString([]rune(value[1:])), location))
+    }
+    return &ClassNode { expanded, location }
 }
 
+// TODO: Have parse tree node track start and end during parsing
 func (v ParseTreeVisitor) VisitAnyExpr(node *ParseTreeNode) AST {
-    panic("TODO")
+    location := node.Children[0].(Token).Start
+    return &ClassNode { negateRanges(expandClass([]rune { '\n', '\r' }, location)), location }
 }

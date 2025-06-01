@@ -6,16 +6,16 @@ rule stmt
     ;
 
 rule expr
-    : l=expr "|" r=expr                    #unionExpr
-    | expr "#" IDENTIFIER (LEFT | RIGHT)?  #labelExpr
-    | l=expr r=expr                        #concatExpr
-    | IDENTIFIER "=" expr                  #aliasExpr
-    | expr op=("+" | "*" | "?")            #quantifierExpr
-    | "(" expr ")"                         #groupExpr
-    | IDENTIFIER                           #identifierExpr
-    | STRING                               #stringExpr
-    | CLASS                                #classExpr
-    | "."                                  #anyExpr
+    : l=expr "|" r=expr                      #unionExpr
+    | expr "#" IDENTIFIER a=(LEFT | RIGHT)?  #labelExpr
+    | l=expr r=expr                          #concatExpr
+    | IDENTIFIER "=" expr                    #aliasExpr
+    | expr op=("?" | "*" | "+")              #quantifierExpr
+    | "(" expr ")"                           #groupExpr
+    | IDENTIFIER                             #identifierExpr
+    | STRING                                 #stringExpr
+    | CLASS                                  #classExpr
+    | "."                                    #anyExpr
     ;
 
 token WHITESPACE : [ \t\n\r]+ -> skip ;

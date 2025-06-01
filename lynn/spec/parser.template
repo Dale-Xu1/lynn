@@ -113,11 +113,13 @@ func (p *Parser) Parse() *ParseTreeNode {
 }
 
 // Given a parse tree node, dispatches the corresponding function in the visitor.
-func VisitNode[T any](visitor BaseVisitor[T], node *ParseTreeNode) T {
-    switch node.data.visitor {
+func VisitNode[T any](visitor BaseVisitor[T], node ParseTreeChild) T {
+    if n, ok := node.(*ParseTreeNode); ok {
+        switch n.data.visitor {
 /*{5}*/
-    default: panic("Invalid parse tree node passed to VisitNode()")
+        }
     }
+    panic("Invalid parse tree child passed to VisitNode()")
 }
 
 /*{6}*/

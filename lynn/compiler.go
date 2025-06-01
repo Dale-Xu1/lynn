@@ -131,7 +131,7 @@ func CompileParser(file string, table LRParseTable, maps map[*Production]map[str
         n := []rune(p.Visitor); n[0] = unicode.ToUpper(n[0]) // Capitalize first character
         name := string(n)
         visitors = append(visitors, fmt.Sprintf("    Visit%s(node *ParseTreeNode) T", name))
-        dispatchers = append(dispatchers, fmt.Sprintf("    case \"%s\": return visitor.Visit%s(node)", p.Visitor, name))
+        dispatchers = append(dispatchers, fmt.Sprintf("        case \"%s\": return visitor.Visit%s(n)", p.Visitor, name))
     }
     // Format action table
     actionTable := make([]string, len(table.Action))
