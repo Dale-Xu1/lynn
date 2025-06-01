@@ -39,13 +39,14 @@ type GrammarGenerator struct {
     parents        map[NonTerminal]NonTerminal
     children       map[NonTerminal]int
     productions    []*Production
+    aliasMaps      map[*Production]map[string]int
     labels         map[*Production]*LabelNode
 }
 
 // Returns a grammar generator struct.
 func NewGrammarGenerator() *GrammarGenerator { return &GrammarGenerator { } }
 // Converts EBNF rules defined in AST into CFG production rules.
-func (g *GrammarGenerator) GenerateCFG(grammar *GrammarNode) *Grammar {
+func (g *GrammarGenerator) GenerateCFG(grammar *GrammarNode) (*Grammar, map[*Production]map[string]int) {
     // Generate set of valid terminals and create map from simple string tokens to their corresponding terminal
     g.terminals, g.strings = make(map[string]struct{}, len(grammar.Tokens)), make(map[string]Terminal, len(grammar.Tokens))
     terminals := make([]Terminal, 0, len(grammar.Tokens))
@@ -85,14 +86,15 @@ func (g *GrammarGenerator) GenerateCFG(grammar *GrammarNode) *Grammar {
         }
     }
     // Convert AST expression to grammar
-    g.productions, g.labels = make([]*Production, 0), make(map[*Production]*LabelNode)
+    g.productions = make([]*Production, 0)
+    g.aliasMaps, g.labels = make(map[*Production]map[string]int), make(map[*Production]*LabelNode)
     for _, rule := range grammar.Rules {
         t := NonTerminal(rule.Identifier.Name)
         g.flattenProductions(t, rule.Expression)
     }
     g.removeAmbiguities()
     // Collect accumulated data into grammar struct
-    return &Grammar { terminals, g.nonTerminals, g.nonTerminals[0], g.productions }
+    return &Grammar { terminals, g.nonTerminals, g.nonTerminals[0], g.productions }, g.aliasMaps
 }
 
 // For a given expression node from the AST, adds to a list of productions in CFG format.
@@ -130,14 +132,16 @@ func (g *GrammarGenerator) expressionCFG(left NonTerminal, expression AST) {
         // E -> epsilon
         if t := g.expandExpressionCFG(left, node.Expression); t != nil {
             g.productions = append(g.productions,
-                &Production { FLATTEN, left, []Symbol { left, t }, "" }, &Production { NORMAL, left, []Symbol { }, "" })
+                &Production { FLATTEN, left, []Symbol { left, t }, "" },
+                &Production { NORMAL, left, []Symbol { }, "" })
         }
     case *RepeatOneNode:
         // E -> E E'
         // E -> E' (E' can be repeated 1 or more times)
         if t := g.expandExpressionCFG(left, node.Expression); t != nil {
             g.productions = append(g.productions,
-                &Production { FLATTEN, left, []Symbol { left, t }, "" }, &Production { NORMAL, left, []Symbol { t }, "" })
+                &Production { FLATTEN, left, []Symbol { left, t }, "" },
+                &Production { NORMAL, left, []Symbol { t }, "" })
         }
     // New non-terminals are auxiliary when production is for a non-derived non-terminal
     case *ConcatNode: g.productions = append(g.productions, g.flattenConcatCFG(left, node, ""))
@@ -185,22 +189,42 @@ func (g *GrammarGenerator) flattenConcatCFG(left NonTerminal, expression AST, vi
         nodes = []AST { expression }
     }
     // Convert nodes in list to symbols
-    symbols, aliases := make([]Symbol, 0, len(nodes)), make(map[string]int)
-    for i, n := range nodes {
-        // Intercept aliases within concatenation expressions (not allowed elsewhere)
-        // Build map between aliases and indices associated with the current production
-        if a, ok := n.(*AliasNode); ok {
-            n = a.Expression
-            aliases[a.Identifier.Name] = i
+    symbols := make([]Symbol, 0, len(nodes))
+    aliases, identifiers := make(map[string]int), make(map[string][]int)
+    for i, node := range nodes {
+        switch n := node.(type) {
+        case *AliasNode:
+            // Intercept aliases within concatenation expressions (not allowed elsewhere)
+            // Build map between aliases and indices associated with the current production
+            id := n.Identifier
+            if _, ok := aliases[id.Name]; !ok {
+                aliases[id.Name] = i
+            } else {
+                fmt.Printf("Generation error: Alias \"%s\" is already defined - %d:%d\n",
+                    id.Name, id.Location.Line, id.Location.Col)
+            }
+            node = n.Expression
+        // Identifiers are accumulated as potential implicit aliases
+        case *IdentifierNode: identifiers[n.Name] = append(identifiers[n.Name], i)
+        // If the expression inside a quantifier is only an identifier, add as potential alias
+        case *OptionNode:
+            if id, ok := n.Expression.(*IdentifierNode); ok { identifiers[id.Name] = append(identifiers[id.Name], i) }
+        case *RepeatNode:
+            if id, ok := n.Expression.(*IdentifierNode); ok { identifiers[id.Name] = append(identifiers[id.Name], i) }
+        case *RepeatOneNode:
+            if id, ok := n.Expression.(*IdentifierNode); ok { identifiers[id.Name] = append(identifiers[id.Name], i) }
         }
-        s := g.expandExpressionCFG(left, n)
-        if s != nil { symbols = append(symbols, s) }
+        symbols = append(symbols, g.expandExpressionCFG(left, node))
     }
+    // If an identifier has only one occurrence and no explicit alias of the same name exists, add as implicit alias
+    for id, indices := range identifiers {
+        if _, ok := aliases[id]; ok || len(indices) > 1 { continue }
+        aliases[id] = indices[0]
+    }
+    // Create production struct
+    // If alias map contains entries, create association between it and production
     production := &Production { NORMAL, left, symbols, visitor }
-    // TODO: Get this information to the compiler
-    if len(aliases) > 0 {
-        fmt.Println(aliases)
-    }
+    if len(aliases) > 0 { g.aliasMaps[production] = aliases }
     return production
 }
 

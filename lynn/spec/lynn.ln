@@ -1,16 +1,16 @@
 rule grammar : stmt* ;
 rule stmt
-    : RULE     IDENTIFIER ":" expr ";"               #ruleStmt
-    | TOKEN    IDENTIFIER ":" expr ("->" SKIP)? ";"  #tokenStmt
-    | FRAGMENT IDENTIFIER ":" expr ";"               #fragmentStmt
+    : RULE     IDENTIFIER ":" expr ";"                 #ruleStmt
+    | TOKEN    IDENTIFIER ":" expr s=("->" SKIP)? ";"  #tokenStmt
+    | FRAGMENT IDENTIFIER ":" expr ";"                 #fragmentStmt
     ;
 
 rule expr
-    : expr "|" expr                        #unionExpr
+    : l=expr "|" r=expr                    #unionExpr
     | expr "#" IDENTIFIER (LEFT | RIGHT)?  #labelExpr
-    | expr expr                            #concatExpr
+    | l=expr r=expr                        #concatExpr
     | IDENTIFIER "=" expr                  #aliasExpr
-    | expr ("+" | "*" | "?")               #quantifierExpr
+    | expr op=("+" | "*" | "?")            #quantifierExpr
     | "(" expr ")"                         #groupExpr
     | IDENTIFIER                           #identifierExpr
     | STRING                               #stringExpr
