@@ -19,9 +19,11 @@ type actionEntry struct {
 
 // Parse tree child interface. May either be a Token or ParseTreeNode struct.
 type ParseTreeChild interface { string(indent string) string }
+// Parse tree node struct. Contains child nodes and location range.
 type ParseTreeNode struct {
-    data     *productionData
-    Children []ParseTreeChild
+    Children   []ParseTreeChild
+    Start, End Location
+    data       *productionData
 }
 
 var productions = []productionData {
@@ -220,13 +222,20 @@ func (p *Parser) Parse() *ParseTreeNode {
                 // Collect child nodes from current states on the stack and create node for reduction
                 children := make([]ParseTreeChild, production.length)
                 for i, s := range stack[i:] { children[i] = s.node }
-                node = &ParseTreeNode { production, children }
+                // Find start and end locations
+                start, end := findLocationRange(children)
+                node = &ParseTreeNode { children, start, end, production }
             case 2:
                 // Handle flatten productions
                 // Of the two nodes popped, preserve the first and add the second as a child of the first
                 // Results in quantified expressions in the grammar generating arrays of elements
                 list, element := stack[i].node.(*ParseTreeNode), stack[i + 1].node
                 list.Children = append(list.Children, element)
+                switch n := element.(type) {
+                case nil: continue
+                case *ParseTreeNode: list.End = n.End
+                case Token:          list.End = n.End
+                }
                 node = list
             case 1: node = stack[i].node // For auxiliary productions, pass child through without generating new node
             case 3: node = nil // Add nil value for removed productions
@@ -242,6 +251,31 @@ func (p *Parser) Parse() *ParseTreeNode {
         case 2: return stack[1].node.(*ParseTreeNode)
         }
     }
+}
+
+// Given a list of children, find the location range that they occupy
+func findLocationRange(children []ParseTreeChild) (Location, Location) {
+    var start, end Location
+    for _, c := range children {
+        // The start location is determined by the start of the first non-nil child
+        switch n := c.(type) {
+        case nil: continue
+        case *ParseTreeNode: start = n.Start
+        case Token:          start = n.Start
+        }
+        break
+    }
+    for i := len(children) - 1; i >= 0; i-- {
+        c := children[i]
+        // The end location is determined by the end of the last non-nil child
+        switch n := c.(type) {
+        case nil: continue
+        case *ParseTreeNode: end = n.End
+        case Token:          end = n.End
+        }
+        break
+    }
+    return start, end
 }
 
 // Given a parse tree node, dispatches the corresponding function in the visitor.

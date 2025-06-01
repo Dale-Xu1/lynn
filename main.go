@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"lynn/lynn"
 	"os"
 )
@@ -14,19 +13,14 @@ func main() {
 
     lexer := lynn.NewLexer(bufio.NewReader(f), lynn.DEFAULT_LEXER_HANDLER)
     tree := lynn.NewParser(lexer, lynn.DEFAULT_PARSER_HANDLER).Parse()
-    ast := lynn.NewParseTreeVisitor().VisitGrammar(tree)
-    fmt.Println(ast)
+    ast := lynn.NewParseTreeVisitor().VisitGrammar(tree).(*lynn.GrammarNode)
 
-    // lexer := lynn.NewLexer(bufio.NewReader(f), lynn.DEFAULT_LEXER_HANDLER)
-    // parser := lynn.NewLegacyParser(lexer)
-    // ast := parser.Parse()
+    generator := lynn.NewLexerGenerator()
+    nfa, ranges := generator.GenerateNFA(ast)
+    dfa := generator.NFAtoDFA(nfa, ranges)
+    lynn.CompileLexer("lynn", dfa, ranges, ast)
 
-    // generator := lynn.NewLexerGenerator()
-    // nfa, ranges := generator.GenerateNFA(ast)
-    // dfa := generator.NFAtoDFA(nfa, ranges)
-    // lynn.CompileLexer("lynn", dfa, ranges, ast)
-
-    // grammar, maps := lynn.NewGrammarGenerator().GenerateCFG(ast)
-    // table := lynn.NewLALRParserGenerator().Generate(grammar)
-    // lynn.CompileParser("lynn", table, maps, ast)
+    grammar, maps := lynn.NewGrammarGenerator().GenerateCFG(ast)
+    table := lynn.NewLALRParserGenerator().Generate(grammar)
+    lynn.CompileParser("lynn", table, maps, ast)
 }

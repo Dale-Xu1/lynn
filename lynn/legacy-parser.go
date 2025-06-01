@@ -1,10 +1,6 @@
 package lynn
 
-import (
-	"cmp"
-	"fmt"
-	"sort"
-)
+import "fmt"
 
 // LegacyParser struct. Converts token stream to abstract syntax tree (AST).
 type LegacyParser struct { lexer *Lexer }
@@ -152,85 +148,6 @@ func (p *LegacyParser) parsePrimary() AST {
         return &ClassNode { expanded, token.Start }
     default: return nil // Invalid expression
     }
-}
-
-func reduceString(chars []rune) []rune {
-    reduced := make([]rune, 0, len(chars))
-    for i := 0; i < len(chars); i++ {
-        char := chars[i]
-        switch {
-        case char == '\\':
-            i++
-            // Replace escape sequences with special characters
-            switch chars[i] {
-            case 't': reduced = append(reduced, '\t')
-            case 'n': reduced = append(reduced, '\n')
-            case 'r': reduced = append(reduced, '\r')
-            case '0': reduced = append(reduced, 0)
-            default: reduced = append(reduced, chars[i]) // Backslash is ignored for non-special characters
-            }
-        default: reduced = append(reduced, chars[i])
-        }
-    }
-    return reduced
-}
-
-func expandClass(chars []rune, location Location) []Range {
-    // Convert characters and hyphen notation to range structs
-    expanded := make([]Range, 0, len(chars))
-    for i := 0; i < len(chars); i++ {
-        char := chars[i]
-        switch {
-        case char == '-' && i > 0 && i < len(chars) - 1: // Hyphen for range cannot be first or last character in class
-            expanded = expanded[:len(expanded) - 1]
-            if chars[i - 1] <= chars[i + 1] {
-                expanded = append(expanded, Range { chars[i - 1], chars[i + 1] })
-            } else {
-                // Raise error and ignore range if endpoint order is reversed
-                fmt.Printf("Syntax error: Invalid range from \"%s\" to \"%s\" - %d:%d\n",
-                    formatChar(chars[i - 1]), formatChar(chars[i + 1]), location.Line, location.Col)
-            }
-            i++
-        default: expanded = append(expanded, Range { char, char })
-        }
-    }
-    if len(expanded) <= 1 { return expanded }
-    return mergeRanges(expanded)
-}
-
-func mergeRanges(ranges []Range) []Range {
-    // Sort ranges based on minimum
-    sort.Slice(ranges, func (i, j int) bool { return ranges[i].Min < ranges[j].Min })
-    // Scan ranges and merge if overlap is found
-    merged := make([]Range, 1, len(ranges))
-    merged[0] = ranges[0]
-    for _, r := range ranges[1:] {
-        last := &merged[len(merged) - 1]
-        if r.Min <= last.Max + 1 {
-            last.Max = max(last.Max, r.Max)
-        } else {
-            merged = append(merged, r)
-        }
-    }
-    return merged
-}
-
-func negateRanges(ranges []Range) []Range {
-    // Assumes ranges are already sorted and merged
-    negated := make([]Range, 0, len(ranges) + 1)
-    const MAX rune = 0x10ffff // Maximum unicode character
-    var start rune = 1
-    for _, r := range ranges {
-        if r.Min > start { negated = append(negated, Range { start, r.Min - 1 }) }
-        start = r.Max + 1
-    }
-    if start <= MAX { negated = append(negated, Range { start, MAX }) }
-    return negated
-}
-
-func max[T cmp.Ordered](a, b T) T {
-    if a > b { return a }
-    return b
 }
 
 func (p *LegacyParser) unexpected() {
