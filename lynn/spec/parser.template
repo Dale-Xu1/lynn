@@ -7,12 +7,14 @@ import (
 
 // Production data struct. Expresses a sequence of symbols that a given non-terminal may be expanded to in a grammar.
 type productionData struct {
-    Type, Left, Length int
-    Visitor            string
+    productionType int
+    left, length   int
+    visitor        string
+    aliases        map[string]int
 }
 // Parse table action entry struct. Holds action type and integer parameter.
 type actionEntry struct {
-    Type, Value int // For 0 actions, value represents a state identifier, for 1 actions, a production identifier
+    actionType, value int // For 0 actions, value represents a state identifier, for 1 actions, a production identifier
 }
 
 // Parse tree child interface. May either be a Token or ParseTreeNode struct.
@@ -70,21 +72,21 @@ func (p *Parser) Parse() *ParseTreeNode {
             fmt.Printf("Syntax error: Unexpected token %q - %d:%d\n", token.Value, token.Start.Line, token.Start.Col)
             return nil
         }
-        switch action.Type {
+        switch action.actionType {
         case 0:
             // For shift actions, add new state to the stack along with token
-            stack = append(stack, StackState { action.Value, token })
+            stack = append(stack, StackState { action.value, token })
             token = p.lexer.Next()
         case 1:
             // For reduce actions, pop states off stack and merge children into one node based on production
-            production := &productions[action.Value]
-            i := len(stack) - production.Length
+            production := &productions[action.value]
+            i := len(stack) - production.length
             var node ParseTreeChild
-            switch production.Type {
+            switch production.productionType {
             case 0:
                 // Handle normal productions
                 // Collect child nodes from current states on the stack and create node for reduction
-                children := make([]ParseTreeChild, production.Length)
+                children := make([]ParseTreeChild, production.length)
                 for i, s := range stack[i:] { children[i] = s.node }
                 node = &ParseTreeNode { production, children }
             case 2:
@@ -101,7 +103,7 @@ func (p *Parser) Parse() *ParseTreeNode {
             // Given new state at the top of the stack, find next state based on the goto table
             stack = stack[:i]
             state := stack[i - 1].state
-            next := gotoTable[state][production.Left]
+            next := gotoTable[state][production.left]
             // Add new state to top of the stack
             stack = append(stack, StackState { next, node })
         // Return non-terminal in auxiliary start production on accept
@@ -112,10 +114,19 @@ func (p *Parser) Parse() *ParseTreeNode {
 
 // Given a parse tree node, dispatches the corresponding function in the visitor.
 func VisitNode[T any](visitor BaseVisitor[T], node *ParseTreeNode) T {
-    switch node.data.Visitor {
+    switch node.data.visitor {
 /*{5}*/
     default: panic("Invalid parse tree node passed to VisitNode()")
     }
+}
+
+/*{6}*/
+
+// Given an alias, return the corresponding parse tree node child based on the production data.
+func (n *ParseTreeNode) GetAlias(alias string) ParseTreeChild {
+    if n.data.aliases == nil { return nil }
+    if i, ok := n.data.aliases[alias]; ok { return n.Children[i] }
+    return nil
 }
 
 // FOR DEBUG PURPOSES:
@@ -135,5 +146,5 @@ func (n *ParseTreeNode) string(indent string) string {
         }
         children[i] = str
     }
-    return fmt.Sprintf("%s[%s]%s", indent, n.data.Visitor, strings.Join(children, ""))
+    return fmt.Sprintf("%s[%s]%s", indent, n.data.visitor, strings.Join(children, ""))
 }

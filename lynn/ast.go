@@ -124,13 +124,12 @@ func (n ClassNode) String() string {
 }
 
 // TODO: Parse tree to AST
-// TODO: Allow access via names instead of indices
 type ParseTreeVisitor struct { }
 func NewParseTreeVisitor() ParseTreeVisitor { return ParseTreeVisitor { } }
 
 func (v ParseTreeVisitor) VisitGrammar(node *ParseTreeNode) AST {
     rules, tokens, fragments := make([]*RuleNode, 0), make([]*TokenNode, 0), make([]*FragmentNode, 0)
-    for _, node := range node.Children[0].(*ParseTreeNode).Children {
+    for _, node := range node.Stmt().(*ParseTreeNode).Children {
         switch rule := VisitNode(v, node.(*ParseTreeNode)).(type) {
         case *RuleNode: rules = append(rules, rule)
         case *TokenNode: tokens = append(tokens, rule)

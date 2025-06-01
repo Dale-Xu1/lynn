@@ -98,19 +98,40 @@ func CompileParser(file string, table LRParseTable, maps map[*Production]map[str
     // Format production data
     // Remove last production, which is the augmented start production
     productions := make([]string, len(table.Grammar.Productions) - 1)
-    existing := make(map[string]struct{})
+    existingVisitors, existingAliases := make(map[string]struct{}), make(map[string]struct{})
     visitors, dispatchers := make([]string, 0), make([]string, 0)
+    aliases := make([]string, 0)
     for i, p := range table.Grammar.Productions[:len(productions)] {
-        productions[i] = fmt.Sprintf("    { %d, %d, %d, \"%s\" },", p.Type, nonTerminalIndices[p.Left], len(p.Right), p.Visitor)
-        // Add visitor entries and dispatcher lines
-        if len(p.Visitor) == 0 { continue }
-        if _, ok := existing[p.Visitor]; !ok {
-            existing[p.Visitor] = struct{}{}
-            n := []rune(p.Visitor); n[0] = unicode.ToUpper(n[0])
-            name := "Visit" + string(n)
-            visitors = append(visitors, fmt.Sprintf("    %s(node *ParseTreeNode) T", name))
-            dispatchers = append(dispatchers, fmt.Sprintf("    case \"%s\": return visitor.%s(node)", p.Visitor, name))
+        var out string
+        if m, ok := maps[p]; ok {
+            // If alias map is present, compile to string
+            entries := make([]string, 0, len(m))
+            for id, i := range m {
+                entries = append(entries, fmt.Sprintf("\"%s\": %d", id, i))
+                // Track all unique aliases
+                if _, ok := existingAliases[id]; ok { continue }
+                existingAliases[id] = struct{}{}
+                // Generate a method for the parse tree node for each alias
+                n := []rune(id); n[0] = unicode.ToUpper(n[0]) // Capitalize first character
+                name := string(n)
+                aliases = append(aliases,
+                    fmt.Sprintf("func (n *ParseTreeNode) %s() ParseTreeChild { return n.GetAlias(\"%s\") }", name, id))
+            }
+            out = fmt.Sprintf("map[string]int { %s }", strings.Join(entries, ", "))
+        } else {
+            out = "nil"
         }
+        productions[i] = fmt.Sprintf("    { %d, %d, %d, \"%s\", %s },",
+            p.Type, nonTerminalIndices[p.Left], len(p.Right), p.Visitor, out)
+        // Test if new dispatcher needs to be generated
+        if len(p.Visitor) == 0 { continue }
+        if _, ok := existingVisitors[p.Visitor]; ok { continue }
+        existingVisitors[p.Visitor] = struct{}{}
+        // Add visitor entries and dispatcher lines
+        n := []rune(p.Visitor); n[0] = unicode.ToUpper(n[0]) // Capitalize first character
+        name := string(n)
+        visitors = append(visitors, fmt.Sprintf("    Visit%s(node *ParseTreeNode) T", name))
+        dispatchers = append(dispatchers, fmt.Sprintf("    case \"%s\": return visitor.Visit%s(node)", p.Visitor, name))
     }
     // Format action table
     actionTable := make([]string, len(table.Action))
@@ -150,6 +171,7 @@ func CompileParser(file string, table LRParseTable, maps map[*Production]map[str
         "/*{3}*/", strings.Join(gotoTable, "\n"),
         "/*{4}*/", strings.Join(visitors, "\n"),
         "/*{5}*/", strings.Join(dispatchers, "\n"),
+        "/*{6}*/", strings.Join(aliases, "\n"),
     }
     result := strings.NewReplacer(pairs...).Replace(template)
     // Write modified template to lexer program file
