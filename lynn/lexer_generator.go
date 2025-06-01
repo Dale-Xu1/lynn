@@ -48,7 +48,7 @@ func (g *LexerGenerator) GenerateNFA(grammar *GrammarNode) (LNFA, []Range) {
         nfa, ok := g.expressionNFA(fragment.Expression)
         id := fragment.Identifier
         if _, exists := tokens[id.Name]; exists {
-            fmt.Printf("Generation error: Fragment \"%s\" is already defined - %d:%d\n", id.Name, id.Location.Line, id.Location.Col)
+            fmt.Printf("Generation error: Fragment \"%s\" is already defined - %d:%d\n", id.Name, id.Start.Line, id.Start.Col)
         } else if ok {
             g.fragments[id.Name] = nfa
             tokens[id.Name] = struct{}{} // Register fragment name as used so token names don't overlap
@@ -63,7 +63,7 @@ func (g *LexerGenerator) GenerateNFA(grammar *GrammarNode) (LNFA, []Range) {
         nfa, ok := g.expressionNFA(token.Expression)
         id := token.Identifier
         if _, ok := tokens[id.Name]; ok {
-            fmt.Printf("Generation error: Token \"%s\" is already defined - %d:%d\n", id.Name, id.Location.Line, id.Location.Col)
+            fmt.Printf("Generation error: Token \"%s\" is already defined - %d:%d\n", id.Name, id.Start.Line, id.Start.Col)
             continue
         }
         tokens[id.Name] = struct{}{}
@@ -71,7 +71,7 @@ func (g *LexerGenerator) GenerateNFA(grammar *GrammarNode) (LNFA, []Range) {
             // Invalid if accept node can be reached from the start node through only epsilon transitions
             if isAccessible(nfa.In, nfa.Out, make(map[*LNFAState]struct{})) {
                 fmt.Printf("Generation error: Invalid regular expression for token \"%s\" - %d:%d\n",
-                    id.Name, id.Location.Line, id.Location.Col)
+                    id.Name, id.Start.Line, id.Start.Col)
                 continue
             }
             start.AddEpsilon(nfa.In)
@@ -90,8 +90,11 @@ func injectEOF(grammar *GrammarNode) {
         if token.Identifier.Name == EOF_TERMINAL { return }
     }
     // Provide default EOF token if not defined
-    node := &TokenNode { &IdentifierNode { EOF_TERMINAL, Location { } }, &StringNode { []rune { 0 }, Location { } }, false }
-    grammar.Tokens = append(grammar.Tokens, node)
+    grammar.Tokens = append(grammar.Tokens, &TokenNode {
+        Identifier: &IdentifierNode { Name: EOF_TERMINAL },
+        Expression: &StringNode { Chars: []rune { 0 } },
+        Skip: false,
+    })
 }
 
 // Converts a given expression node from the AST to an NFA fragment.
@@ -137,7 +140,7 @@ func (g *LexerGenerator) expressionNFA(expression AST) (LNFAFragment, bool) {
     case *IdentifierNode:
         fa, ok := g.fragments[node.Name]
         if !ok {
-            fmt.Printf("Generation error: Fragment \"%s\" is not defined - %d:%d\n", node.Name, node.Location.Line, node.Location.Col)
+            fmt.Printf("Generation error: Fragment \"%s\" is not defined - %d:%d\n", node.Name, node.Start.Line, node.Start.Col)
             return LNFAFragment { }, false
         }
         states := make(map[*LNFAState]*LNFAState)
@@ -145,7 +148,7 @@ func (g *LexerGenerator) expressionNFA(expression AST) (LNFAFragment, bool) {
     case *StringNode:
         // String cannot be empty
         if len(node.Chars) == 0 {
-            fmt.Printf("Generation error: String must contain at least one character - %d:%d\n", node.Location.Line, node.Location.Col)
+            fmt.Printf("Generation error: String must contain at least one character - %d:%d\n", node.Start.Line, node.Start.Col)
             return LNFAFragment { }, false
         }
         // Generate chain of states with transitions at each consecutive character
@@ -168,7 +171,7 @@ func (g *LexerGenerator) expressionNFA(expression AST) (LNFAFragment, bool) {
         }
         return LNFAFragment { in, out }, true
     case *LabelNode:
-        fmt.Printf("Generation error: Labels cannot be used in token expressions - %d:%d\n", node.Location.Line, node.Location.Col)
+        fmt.Printf("Generation error: Labels cannot be used in token expressions - %d:%d\n", node.Start.Line, node.Start.Col)
         return LNFAFragment { }, false
     default: panic("Invalid expression passed to LexerGenerator.expressionNFA()")
     }

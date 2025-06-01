@@ -5,7 +5,6 @@
         "LALR",
         "LDFA",
         "LNFA",
-        "Sprintf",
         "unreads"
     ]
 }

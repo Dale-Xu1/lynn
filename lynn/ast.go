@@ -20,6 +20,7 @@ type GrammarNode struct {
 type RuleNode struct {
     Identifier *IdentifierNode
     Expression AST
+    Start, End Location
 }
 
 // Node representing a token rule. Specifies the token's identifier and regular expression.
@@ -27,6 +28,7 @@ type TokenNode struct {
     Identifier *IdentifierNode
     Expression AST
     Skip       bool
+    Start, End Location
 }
 
 // Node representing a rule fragment. Specifies the fragment's identifier and regular expression.
@@ -34,14 +36,15 @@ type TokenNode struct {
 type FragmentNode struct {
     Identifier *IdentifierNode
     Expression AST
+    Start, End Location
 }
 
 // Node representing an option quantifier. Allows zero or one occurrence of the given regular expression.
-type OptionNode struct { Expression AST }
+type OptionNode struct { Expression AST; Start, End Location }
 // Node representing an repeat quantifier. Allows zero or more occurrences of the given regular expression.
-type RepeatNode struct { Expression AST }
+type RepeatNode struct { Expression AST; Start, End Location }
 // Node representing an repeat one or more quantifier. Allows one or more occurrences of the given regular expression.
-type RepeatOneNode struct { Expression AST }
+type RepeatOneNode struct { Expression AST; Start, End Location }
 
 // Associativity type enum. Either NO_ASSOC, LEFT_ASSOC, or RIGHT_ASSOC.
 type AssociativityType uint
@@ -51,32 +54,34 @@ type LabelNode struct {
     Expression    AST
     Identifier    *IdentifierNode
     Associativity AssociativityType
-    Location      Location
+    Start, End    Location
 }
 
 // Node representing an alias. Specifies the alias identifier and the corresponding expression.
 type AliasNode struct {
     Identifier *IdentifierNode
     Expression AST
-    Location   Location
+    Start, End Location
 }
 
 // Node representing a concatenation operation. Requires that one expression immediately follow the preceding expression.
 type ConcatNode struct {
-    A, B AST
+    A, B       AST
+    Start, End Location
 }
 
 // Node representing a union operation. Allows either one expression or the other to occur.
 type UnionNode struct {
-    A, B AST
+    A, B       AST
+    Start, End Location
 }
 
 // Node representing an identifier literal.
-type IdentifierNode struct { Name string; Location Location }
+type IdentifierNode struct { Name string; Start, End Location }
 // Node representing a string literal.
-type StringNode struct { Chars []rune; Location Location }
+type StringNode struct { Chars []rune; Start, End Location }
 // Node representing a class literal.
-type ClassNode struct { Ranges []Range; Location Location }
+type ClassNode struct { Ranges []Range; Start, End Location }
 
 // Parse tree visitor struct. Converts parse tree to abstract syntax tree (AST).
 type ParseTreeVisitor struct { }
@@ -97,22 +102,26 @@ func (v ParseTreeVisitor) VisitGrammar(node *ParseTreeNode) AST {
 
 func (v ParseTreeVisitor) VisitRuleStmt(node *ParseTreeNode) AST {
     id := node.IDENTIFIER().(Token)
-    return &RuleNode { &IdentifierNode { id.Value, id.Start }, VisitNode(v, node.Expr()) }
+    identifier := &IdentifierNode { id.Value, id.Start, id.End }
+    return &RuleNode { identifier, VisitNode(v, node.Expr()), node.Start, node.End }
 }
 
 func (v ParseTreeVisitor) VisitTokenStmt(node *ParseTreeNode) AST {
     id := node.IDENTIFIER().(Token)
+    identifier := &IdentifierNode { id.Value, id.Start, id.End }
     skip := node.S() != nil
-    return &TokenNode { &IdentifierNode { id.Value, id.Start }, VisitNode(v, node.Expr()), skip }
+    return &TokenNode { identifier, VisitNode(v, node.Expr()), skip, node.Start, node.End }
 }
 
 func (v ParseTreeVisitor) VisitFragmentStmt(node *ParseTreeNode) AST {
     id := node.IDENTIFIER().(Token)
-    return &FragmentNode { &IdentifierNode { id.Value, id.Start }, VisitNode(v, node.Expr()) }
+    identifier := &IdentifierNode { id.Value, id.Start, id.End }
+    return &FragmentNode { identifier, VisitNode(v, node.Expr()), node.Start, node.End }
 }
 
 func (v ParseTreeVisitor) VisitUnionExpr(node *ParseTreeNode) AST {
-    return &UnionNode { VisitNode(v, node.L()), VisitNode(v, node.R()) }
+    left, right := VisitNode(v, node.L()), VisitNode(v, node.R())
+    return &UnionNode { left, right, node.Start, node.End }
 }
 
 func (v ParseTreeVisitor) VisitLabelExpr(node *ParseTreeNode) AST {
@@ -125,57 +134,58 @@ func (v ParseTreeVisitor) VisitLabelExpr(node *ParseTreeNode) AST {
         default: panic("Invalid associativity type")
         }
     } else { assoc = NO_ASSOC }
-    return &LabelNode { VisitNode(v, node.Expr()), &IdentifierNode { id.Value, id.Start }, assoc, node.Start }
+    identifier := &IdentifierNode { id.Value, id.Start, id.End }
+    return &LabelNode { VisitNode(v, node.Expr()), identifier, assoc, node.Start, node.End }
 }
 
 func (v ParseTreeVisitor) VisitConcatExpr(node *ParseTreeNode) AST {
-    return &ConcatNode { VisitNode(v, node.L()), VisitNode(v, node.R()) }
+    left, right := VisitNode(v, node.L()), VisitNode(v, node.R())
+    return &ConcatNode { left, right, node.Start, node.End }
 }
 
 func (v ParseTreeVisitor) VisitAliasExpr(node *ParseTreeNode) AST {
     id := node.IDENTIFIER().(Token)
-    return &AliasNode { &IdentifierNode { id.Value, id.Start }, VisitNode(v, node.Expr()), node.Start }
+    identifier := &IdentifierNode { id.Value, id.Start, id.End }
+    return &AliasNode { identifier, VisitNode(v, node.Expr()), node.Start, node.End }
 }
 
 func (v ParseTreeVisitor) VisitQuantifierExpr(node *ParseTreeNode) AST {
     switch node.Op().(Token).Type {
-    case QUESTION: return &OptionNode { VisitNode(v, node.Expr()) }
-    case STAR:     return &RepeatNode { VisitNode(v, node.Expr()) }
-    case PLUS:     return &RepeatOneNode { VisitNode(v, node.Expr()) }
+    case QUESTION: return &OptionNode    { VisitNode(v, node.Expr()), node.Start, node.End }
+    case STAR:     return &RepeatNode    { VisitNode(v, node.Expr()), node.Start, node.End }
+    case PLUS:     return &RepeatOneNode { VisitNode(v, node.Expr()), node.Start, node.End }
     default: panic("Invalid quantifier operation")
     }
 }
 
 func (v ParseTreeVisitor) VisitGroupExpr(node *ParseTreeNode) AST { return VisitNode(v, node.Expr()) }
 func (v ParseTreeVisitor) VisitIdentifierExpr(node *ParseTreeNode) AST {
-    id := node.IDENTIFIER().(Token)
-    return &IdentifierNode { id.Value, id.Start }
+    return &IdentifierNode { node.IDENTIFIER().(Token).Value, node.Start, node.End }
 }
 
 func (v ParseTreeVisitor) VisitStringExpr(node *ParseTreeNode) AST {
     str := node.STRING().(Token)
     value := str.Value[1:len(str.Value) - 1] // Remove quotation marks
-    return &StringNode { reduceString([]rune(value)), str.Start }
+    return &StringNode { reduceString([]rune(value)), node.Start, node.End }
 }
 
 func (v ParseTreeVisitor) VisitClassExpr(node *ParseTreeNode) AST {
     class := node.CLASS().(Token)
-    value, location := class.Value[1:len(class.Value) - 1], class.Start // Remove brackets
+    value := class.Value[1:len(class.Value) - 1] // Remove brackets
     // If caret occurs, flag class as negated and remove caret
-    negated := len(value) > 0 && value[0] == '^'
+    negated, location := len(value) > 0 && value[0] == '^', node.Start
     var expanded []Range
     if !negated {
         expanded = expandClass(reduceString([]rune(value)), location)
     } else {
         expanded = negateRanges(expandClass(reduceString([]rune(value[1:])), location))
     }
-    return &ClassNode { expanded, location }
+    return &ClassNode { expanded, location, node.End }
 }
 
-// TODO: Add location to all AST nodes
 func (v ParseTreeVisitor) VisitAnyExpr(node *ParseTreeNode) AST {
     location := node.Start
-    return &ClassNode { negateRanges(expandClass([]rune { '\n', '\r' }, location)), location }
+    return &ClassNode { negateRanges(expandClass([]rune { '\n', '\r' }, location)), location, node.End }
 }
 
 func reduceString(chars []rune) []rune {

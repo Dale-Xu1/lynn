@@ -7,9 +7,8 @@ import (
 	"unicode"
 )
 
-// TODO: Wrap parsing and compilation together into cleaner API
-
-func CompileLexer(file string, dfa LDFA, ranges []Range, grammar *GrammarNode) {
+// Compiles relevant lexer data to lexer program.
+func CompileLexer(name string, dfa LDFA, ranges []Range, grammar *GrammarNode) {
     const LEXER_TEMPLATE string = "lynn/spec/lexer.template"
     // Read template information
     data, err := os.ReadFile(LEXER_TEMPLATE)
@@ -20,9 +19,9 @@ func CompileLexer(file string, dfa LDFA, ranges []Range, grammar *GrammarNode) {
     tokenIndices := make(map[string]int, len(grammar.Tokens))
     skip := make([]string, 0)
     for i, token := range grammar.Tokens {
-        name := token.Identifier.Name
-        tokens[i], tokenIndices[name] = name, i
-        typeName[i] = fmt.Sprintf("%d: \"%s\"", i, name)
+        id := token.Identifier.Name
+        tokens[i], tokenIndices[id] = id, i
+        typeName[i] = fmt.Sprintf("%d: \"%s\"", i, id)
         if token.Skip {
             skip = append(skip, fmt.Sprintf("%d: {}", i))
         }
@@ -61,7 +60,7 @@ func CompileLexer(file string, dfa LDFA, ranges []Range, grammar *GrammarNode) {
     }
     // Replace sections with compiled DFA
     pairs := []string {
-        "/*{0}*/", file,
+        "/*{0}*/", name,
         "/*{1}*/", strings.Join(tokens, "; "),
         "/*{2}*/", strings.Join(typeName, ", "),
         "/*{3}*/", strings.Join(skip, ", "),
@@ -78,7 +77,8 @@ func CompileLexer(file string, dfa LDFA, ranges []Range, grammar *GrammarNode) {
     f.WriteString(result)
 }
 
-func CompileParser(file string, table LRParseTable, maps map[*Production]map[string]int, grammar *GrammarNode) {
+// Compiles relevant parser data to parser program.
+func CompileParser(name string, table LRParseTable, maps map[*Production]map[string]int, grammar *GrammarNode) {
     const PARSER_TEMPLATE string = "lynn/spec/parser.template"
     // Read template information
     data, err := os.ReadFile(PARSER_TEMPLATE)
@@ -113,9 +113,9 @@ func CompileParser(file string, table LRParseTable, maps map[*Production]map[str
                 existingAliases[id] = struct{}{}
                 // Generate a method for the parse tree node for each alias
                 n := []rune(id); n[0] = unicode.ToUpper(n[0]) // Capitalize first character
-                name := string(n)
+                alias := string(n)
                 aliases = append(aliases,
-                    fmt.Sprintf("func (n *ParseTreeNode) %s() ParseTreeChild { return n.GetAlias(\"%s\") }", name, id))
+                    fmt.Sprintf("func (n *ParseTreeNode) %s() ParseTreeChild { return n.GetAlias(\"%s\") }", alias, id))
             }
             out = fmt.Sprintf("map[string]int { %s }", strings.Join(entries, ", "))
         } else {
@@ -129,9 +129,9 @@ func CompileParser(file string, table LRParseTable, maps map[*Production]map[str
         existingVisitors[p.Visitor] = struct{}{}
         // Add visitor entries and dispatcher lines
         n := []rune(p.Visitor); n[0] = unicode.ToUpper(n[0]) // Capitalize first character
-        name := string(n)
-        visitors = append(visitors, fmt.Sprintf("    Visit%s(node *ParseTreeNode) T", name))
-        dispatchers = append(dispatchers, fmt.Sprintf("        case \"%s\": return visitor.Visit%s(n)", p.Visitor, name))
+        visitor := string(n)
+        visitors = append(visitors, fmt.Sprintf("    Visit%s(node *ParseTreeNode) T", visitor))
+        dispatchers = append(dispatchers, fmt.Sprintf("        case \"%s\": return visitor.Visit%s(n)", p.Visitor, visitor))
     }
     // Format action table
     actionTable := make([]string, len(table.Action))
@@ -165,7 +165,7 @@ func CompileParser(file string, table LRParseTable, maps map[*Production]map[str
     }
     // Replace sections with compiled parse table
     pairs := []string {
-        "/*{0}*/", file,
+        "/*{0}*/", name,
         "/*{1}*/", strings.Join(productions, "\n"),
         "/*{2}*/", strings.Join(actionTable, "\n"),
         "/*{3}*/", strings.Join(gotoTable, "\n"),

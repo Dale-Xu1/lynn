@@ -58,7 +58,7 @@ func (g *GrammarGenerator) GenerateCFG(grammar *GrammarNode) (*Grammar, map[*Pro
         if token.Skip { continue }
         id := token.Identifier
         if _, ok := g.terminals[id.Name]; ok {
-            fmt.Printf("Generation error: Token \"%s\" is already defined - %d:%d\n", id.Name, id.Location.Line, id.Location.Col)
+            fmt.Printf("Generation error: Token \"%s\" is already defined - %d:%d\n", id.Name, id.Start.Line, id.Start.Col)
             continue
         }
         g.terminals[id.Name] = struct{}{}
@@ -81,7 +81,7 @@ func (g *GrammarGenerator) GenerateCFG(grammar *GrammarNode) (*Grammar, map[*Pro
         // Ensure identifier does not collide with an existing token
         if _, ok := g.terminals[id.Name]; ok {
             fmt.Printf("Generation error: Identifier \"%s\" is already taken by a token - %d:%d\n",
-                id.Name, id.Location.Line, id.Location.Col)
+                id.Name, id.Start.Line, id.Start.Col)
             continue
         }
         if _, ok := g.nonTerminalMap[id.Name]; !ok {
@@ -205,7 +205,7 @@ func (g *GrammarGenerator) flattenConcatCFG(left NonTerminal, expression AST, vi
                 aliases[id.Name] = i
             } else {
                 fmt.Printf("Generation error: Alias \"%s\" is already defined - %d:%d\n",
-                    id.Name, id.Location.Line, id.Location.Col)
+                    id.Name, id.Start.Line, id.Start.Col)
             }
             node = n.Expression
         // Identifiers are accumulated as potential implicit aliases
@@ -239,16 +239,16 @@ func (g *GrammarGenerator) literalCFG(expression AST) (Symbol, bool) {
         // Finds the terminal or non-terminal that the identifier is referring to
         if _, ok := g.terminals[node.Name];      ok { return Terminal(node.Name), true }
         if _, ok := g.nonTerminalMap[node.Name]; ok { return NonTerminal(node.Name), true }
-        fmt.Printf("Generation error: Identifier \"%s\" is not defined - %d:%d\n", node.Name, node.Location.Line, node.Location.Col)
+        fmt.Printf("Generation error: Identifier \"%s\" is not defined - %d:%d\n", node.Name, node.Start.Line, node.Start.Col)
     case *StringNode:
         // Find terminal associated with a string, resolves if explicit string definition exists in AST
         str := string(node.Chars); 
         if t, ok := g.strings[str]; ok { return t, true }
-        fmt.Printf("Generation error: No token explicitly matches \"%s\" - %d:%d\n", str, node.Location.Line, node.Location.Col)
+        fmt.Printf("Generation error: No token explicitly matches \"%s\" - %d:%d\n", str, node.Start.Line, node.Start.Col)
     case *ClassNode:
-        fmt.Printf("Generation error: Classes cannot be used in rule expressions - %d:%d\n", node.Location.Line, node.Location.Col)
-    case *LabelNode: fmt.Printf("Generation error: Invalid use of label - %d:%d\n", node.Location.Line, node.Location.Col)
-    case *AliasNode: fmt.Printf("Generation error: Invalid use of alias - %d:%d\n", node.Location.Line, node.Location.Col)
+        fmt.Printf("Generation error: Classes cannot be used in rule expressions - %d:%d\n", node.Start.Line, node.Start.Col)
+    case *LabelNode: fmt.Printf("Generation error: Invalid use of label - %d:%d\n", node.Start.Line, node.Start.Col)
+    case *AliasNode: fmt.Printf("Generation error: Invalid use of alias - %d:%d\n", node.Start.Line, node.Start.Col)
     default: return nil, false
     }
     return nil, true
@@ -324,7 +324,7 @@ func (g *GrammarGenerator) expectNoLabel(production *Production) {
     // Raise error message if production has a label
     if node, ok := g.labels[production]; ok && node.Associativity != NO_ASSOC {
         fmt.Printf("Generation error: Associativity label cannot be used for current production - %d:%d\n",
-            node.Location.Line, node.Location.Col)
+            node.Start.Line, node.Start.Col)
     }
 }
 
