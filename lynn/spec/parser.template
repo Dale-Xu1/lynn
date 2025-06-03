@@ -29,7 +29,7 @@ type ParseTreeNode struct {
 var productions = []productionData {
 /*{1}*/
 }
-var actionTable = []map[TokenType]actionEntry {
+var actionTable = []map[int]actionEntry {
 /*{2}*/
 }
 var gotoTable = []map[int]int {
@@ -62,30 +62,47 @@ func (p *Parser) Parse() *ParseTreeNode {
         state int
         node  ParseTreeChild
     }
+    // Production and action type enums
+    const (NORMAL int = iota; AUXILIARY; FLATTEN; REMOVED)
+    const (SHIFT int = iota; REDUCE; ACCEPT)
     // Initialize current token and stack
     token, stack := p.lexer.Next(), []StackState { { 0, nil } }
-    for {
+    main: for {
         // Get the current state at the top of the stack and find the action to take
         // Next action is determined by action table given state index and the current token type
         state := stack[len(stack) - 1].state
-        action, ok := actionTable[state][token.Type]
+        action, ok := actionTable[state][int(token.Type)]
         if !ok {
             // If the table does not have a valid action, cannot parse current token
-            fmt.Printf("Syntax error: Unexpected token %q - %d:%d\n", token.Value, token.Start.Line, token.Start.Col)
-            return nil
+            p.handler(token)
+            for {
+                // Pop states off the stack until a valid shift action on the error terminal is found
+                if len(stack) == 0 { return nil }
+                if action, ok := actionTable[state][-1]; ok && action.actionType == SHIFT {
+                    // Shift token that caused error onto stack
+                    // Then enter panic mode and read tokens until a valid action can be made
+                    stack = append(stack, StackState { action.value, token })
+                    for {
+                        token = p.lexer.Next()
+                        if _, ok := actionTable[action.value][int(token.Type)]; ok { continue main }
+                    }
+                }
+                i := len(stack) - 1; stack = stack[:i]
+                state = stack[i - 1].state
+            }
         }
         switch action.actionType {
-        case 0:
+        case SHIFT:
             // For shift actions, add new state to the stack along with token
             stack = append(stack, StackState { action.value, token })
             token = p.lexer.Next()
-        case 1:
+        case REDUCE:
             // For reduce actions, pop states off stack and merge children into one node based on production
             production := &productions[action.value]
             i := len(stack) - production.length
             var node ParseTreeChild
             switch production.productionType {
-            case 0:
+            case NORMAL:
                 // Handle normal productions
                 // Collect child nodes from current states on the stack and create node for reduction
                 children := make([]ParseTreeChild, production.length)
@@ -93,7 +110,7 @@ func (p *Parser) Parse() *ParseTreeNode {
                 // Find start and end locations
                 start, end := findLocationRange(children)
                 node = &ParseTreeNode { children, start, end, production }
-            case 2:
+            case FLATTEN:
                 // Handle flatten productions
                 // Of the two nodes popped, preserve the first and add the second as a child of the first
                 // Results in quantified expressions in the grammar generating arrays of elements
@@ -105,8 +122,8 @@ func (p *Parser) Parse() *ParseTreeNode {
                 case Token:          list.End = n.End
                 }
                 node = list
-            case 1: node = stack[i].node // For auxiliary productions, pass child through without generating new node
-            case 3: node = nil // Add nil value for removed productions
+            case AUXILIARY: node = stack[i].node // For auxiliary productions, pass child through without generating new node
+            case REMOVED: node = nil // Add nil value for removed productions
             }
             // Pop consumed states off stack
             // Given new state at the top of the stack, find next state based on the goto table
@@ -116,7 +133,7 @@ func (p *Parser) Parse() *ParseTreeNode {
             // Add new state to top of the stack
             stack = append(stack, StackState { next, node })
         // Return non-terminal in auxiliary start production on accept
-        case 2: return stack[1].node.(*ParseTreeNode)
+        case ACCEPT: return stack[1].node.(*ParseTreeNode)
         }
     }
 }

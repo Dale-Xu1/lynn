@@ -86,6 +86,7 @@ func CompileParser(name string, table LRParseTable, maps map[*Production]map[str
     template := string(data)
     // Get token indices
     tokenIndices := make(map[string]int, len(grammar.Tokens))
+    tokenIndices[ERROR_TERMINAL] = -1
     for i, token := range grammar.Tokens {
         tokenIndices[token.Identifier.Name] = i
     }

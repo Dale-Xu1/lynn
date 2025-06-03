@@ -82,6 +82,8 @@ type IdentifierNode struct { Name string; Start, End Location }
 type StringNode struct { Chars []rune; Start, End Location }
 // Node representing a class literal.
 type ClassNode struct { Ranges []Range; Start, End Location }
+// Node representing an error literal.
+type ErrorNode struct { Start, End Location }
 
 // Parse tree visitor struct. Converts parse tree to abstract syntax tree (AST).
 type ParseTreeVisitor struct { }
@@ -100,6 +102,7 @@ func (v ParseTreeVisitor) VisitGrammar(node *ParseTreeNode) AST {
     return &GrammarNode { rules, tokens, fragments }
 }
 
+func (v ParseTreeVisitor) VisitStmt(node *ParseTreeNode) AST { panic("Invalid statement") }
 func (v ParseTreeVisitor) VisitRuleStmt(node *ParseTreeNode) AST {
     id := node.IDENTIFIER().(Token)
     identifier := &IdentifierNode { id.Value, id.Start, id.End }
@@ -183,6 +186,7 @@ func (v ParseTreeVisitor) VisitClassExpr(node *ParseTreeNode) AST {
     return &ClassNode { expanded, location, node.End }
 }
 
+func (v ParseTreeVisitor) VisitErrorExpr(node *ParseTreeNode) AST { return &ErrorNode { node.Start, node.End } }
 func (v ParseTreeVisitor) VisitAnyExpr(node *ParseTreeNode) AST {
     location := node.Start
     return &ClassNode { negateRanges(expandClass([]rune { '\n', '\r' }, location)), location, node.End }
@@ -315,3 +319,4 @@ func (n ClassNode) String() string {
     for i, r := range n.Ranges { ranges[i] = r.String() }
     return fmt.Sprintf("[%s]", strings.Join(ranges, ","))
 }
+func (n ErrorNode) String() string { return "error" }

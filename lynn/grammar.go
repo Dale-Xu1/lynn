@@ -9,7 +9,7 @@ import (
 type Symbol interface { fmt.Stringer }
 // Terminal type. Represented by string identifier.
 type Terminal string
-const (EPSILON Terminal = ""; EOF_TERMINAL = "EOF")
+const (EPSILON Terminal = ""; ERROR_TERMINAL = "error"; EOF_TERMINAL = "EOF")
 // Non-terminal type. Represented by string identifier.
 type NonTerminal string
 
@@ -73,6 +73,7 @@ func (g *GrammarGenerator) GenerateCFG(grammar *GrammarNode) (*Grammar, map[*Pro
         g.terminals[EOF_TERMINAL] = struct{}{}
         terminals = append(terminals, EOF_TERMINAL)
     }
+    terminals = append(terminals, ERROR_TERMINAL)
     // Create list of valid non-terminals and initialize parent-children relationship data constructs
     g.nonTerminals, g.nonTerminalMap = make([]NonTerminal, 0, len(grammar.Rules)), make(map[string]struct{}, len(grammar.Rules))
     g.parents, g.children = make(map[NonTerminal]NonTerminal), make(map[NonTerminal]int, len(grammar.Rules))
@@ -245,6 +246,7 @@ func (g *GrammarGenerator) literalCFG(expression AST) (Symbol, bool) {
         str := string(node.Chars); 
         if t, ok := g.strings[str]; ok { return t, true }
         fmt.Printf("Generation error: No token explicitly matches \"%s\" - %d:%d\n", str, node.Start.Line, node.Start.Col)
+    case *ErrorNode: return Terminal(ERROR_TERMINAL), true
     case *ClassNode:
         fmt.Printf("Generation error: Classes cannot be used in rule expressions - %d:%d\n", node.Start.Line, node.Start.Col)
     case *LabelNode: fmt.Printf("Generation error: Invalid use of label - %d:%d\n", node.Start.Line, node.Start.Col)
