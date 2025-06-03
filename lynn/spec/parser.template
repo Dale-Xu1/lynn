@@ -85,6 +85,7 @@ func (p *Parser) Parse() *ParseTreeNode {
                     for {
                         token = p.lexer.Next()
                         if _, ok := actionTable[action.value][int(token.Type)]; ok { continue main }
+                        if token.Type == EOF { return nil }
                     }
                 }
                 i := len(stack) - 1; stack = stack[:i]

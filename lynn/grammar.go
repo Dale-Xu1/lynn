@@ -270,6 +270,8 @@ func (g *GrammarGenerator) removeAmbiguities() {
         a, rest := make([]Ambiguity, 0), make([]*Production, 0)
         for _, p := range group {
             if len(p.Right) >= 2 {
+                // TODO: Maybe change logic to only disambiguate if explicit label exists
+                // TODO: Also add way of grouping productions into the same precedence level?
                 l, r := p.Right[0] == nt, p.Right[len(p.Right) - 1] == nt
                 // Determine type of recursion and type of operator
                 switch {
@@ -287,8 +289,8 @@ func (g *GrammarGenerator) removeAmbiguities() {
             g.expectNoLabel(p)
             rest = append(rest, p)
         }
-        // At least one non-operation production must exist to perform disambiguation
-        if len(rest) == 0 { continue }
+        // At least one non-operation and one operation production must exist to perform disambiguation
+        if len(a) == 0 || len(rest) == 0 { continue }
         // Divide non-terminal productions into multiple precedence levels
         left := nt
         for i, m := range a {
