@@ -170,8 +170,14 @@ func (g *LexerGenerator) expressionNFA(expression AST) (LNFAFragment, bool) {
             g.ranges[r] = struct{}{}
         }
         return LNFAFragment { in, out }, true
+    case *ErrorNode:
+        fmt.Printf("Generation error: Error terminals cannot be used in token expressions - %d:%d\n", node.Start.Line, node.Start.Col)
+        return LNFAFragment { }, false
     case *LabelNode:
         fmt.Printf("Generation error: Labels cannot be used in token expressions - %d:%d\n", node.Start.Line, node.Start.Col)
+        return LNFAFragment { }, false
+    case *AliasNode:
+        fmt.Printf("Generation error: Aliases cannot be used in token expressions - %d:%d\n", node.Start.Line, node.Start.Col)
         return LNFAFragment { }, false
     default: panic("Invalid expression passed to LexerGenerator.expressionNFA()")
     }
