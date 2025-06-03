@@ -1,4 +1,4 @@
-rule grammar : stmt* || ;
+rule grammar : stmt* ;
 rule stmt
     : RULE     IDENTIFIER ":" expr ";"                 #ruleStmt
     | TOKEN    IDENTIFIER ":" expr s=("->" SKIP)? ";"  #tokenStmt
