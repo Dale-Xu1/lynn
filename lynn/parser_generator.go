@@ -266,13 +266,12 @@ func (g *LALRParserGenerator) buildParseTable(states []*LRState) LRParseTable {
                     switch existing.Type {
                     case SHIFT:
                         // Reduce action is ignored, preferring shift action if it already exists
-                        fmt.Printf("Generation error: Shift/reduce conflict on token %s for production %v\n",
-                            item.Lookahead, item.Production)
+                        Error(fmt.Sprintf("Shift/reduce conflict on token %s for production %v", item.Lookahead, item.Production))
                         continue
                     case REDUCE:
                         // Resolve reduce/reduce conflict by choosing reduce action with lower production identifier
-                        fmt.Printf("Generation error: Reduce/reduce conflict on token %s between productions %v and %v\n",
-                            item.Lookahead, item.Production, g.grammar.Productions[existing.Value])
+                        Error(fmt.Sprintf("Reduce/reduce conflict on token %s between productions %v and %v",
+                            item.Lookahead, item.Production, g.grammar.Productions[existing.Value]))
                         if id > existing.Value { continue }
                     }
                 }

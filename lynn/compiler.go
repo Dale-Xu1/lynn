@@ -7,6 +7,15 @@ import (
 	"unicode"
 )
 
+// Returns if an error has occurred within any component of the generator.
+func Panic() bool { return occurred }
+var occurred = false
+// Reports an error message.
+func Error(message string) {
+    fmt.Printf("Generation error: %s\n", message)
+    occurred = true
+}
+
 // Compiles relevant lexer data to lexer program.
 func CompileLexer(name string, dfa LDFA, ranges []Range, grammar *GrammarNode) {
     const LEXER_TEMPLATE string = "lynn/spec/lexer.template"

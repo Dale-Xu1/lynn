@@ -108,6 +108,10 @@ func (v ParseTreeVisitor) VisitGrammar(node *ParseTreeNode) AST {
         case *FragmentNode: fragments = append(fragments, rule)
         }
     }
+    if len(rules) == 0 || len(tokens) == 0 {
+        location := node.Start
+        Error(fmt.Sprintf("Grammar definition must contain at least one rule and token - %d:%d", location.Line, location.Col))
+    }
     return &GrammarNode { rules, precedence, tokens, fragments }
 }
 
@@ -245,8 +249,8 @@ func expandClass(chars []rune, location Location) []Range {
                 expanded = append(expanded, Range { chars[i - 1], chars[i + 1] })
             } else {
                 // Raise error and ignore range if endpoint order is reversed
-                fmt.Printf("Syntax error: Invalid range from \"%s\" to \"%s\" - %d:%d\n",
-                    formatChar(chars[i - 1]), formatChar(chars[i + 1]), location.Line, location.Col)
+                Error(fmt.Sprintf("Invalid range from \"%s\" to \"%s\" - %d:%d",
+                    formatChar(chars[i - 1]), formatChar(chars[i + 1]), location.Line, location.Col))
             }
             i++
         default: expanded = append(expanded, Range { char, char })
