@@ -24,6 +24,9 @@ type RuleNode struct {
     Start, End Location
 }
 
+// Associativity type enum. Either NO_ASSOC, LEFT_ASSOC, or RIGHT_ASSOC.
+type AssociativityType uint
+const (NO_ASSOC AssociativityType = iota; LEFT_ASSOC; RIGHT_ASSOC)
 // Node representing a precedence statement. Specifies the a precedence level and its associativity.
 type PrecedenceNode struct {
     Identifier    *IdentifierNode
@@ -54,9 +57,6 @@ type RepeatNode struct { Expression AST; Start, End Location }
 // Node representing an repeat one or more quantifier. Allows one or more occurrences of the given regular expression.
 type RepeatOneNode struct { Expression AST; Start, End Location }
 
-// Associativity type enum. Either NO_ASSOC, LEFT_ASSOC, or RIGHT_ASSOC.
-type AssociativityType uint
-const (NO_ASSOC AssociativityType = iota; LEFT_ASSOC; RIGHT_ASSOC)
 // Node representing a rule case label. Specifies the callback identifier and associativity for the disambiguation process.
 type LabelNode struct {
     Expression AST
@@ -64,7 +64,6 @@ type LabelNode struct {
     Precedence *IdentifierNode
     Start, End Location
 }
-
 // Node representing an alias. Specifies the alias identifier and the corresponding expression.
 type AliasNode struct {
     Identifier *IdentifierNode
@@ -77,7 +76,6 @@ type ConcatNode struct {
     A, B       AST
     Start, End Location
 }
-
 // Node representing a union operation. Allows either one expression or the other to occur.
 type UnionNode struct {
     A, B       AST
@@ -305,9 +303,7 @@ func (n GrammarNode) String() string {
     return strings.Join(lines, "\n")
 }
 
-func (n RuleNode) String() string {
-    return fmt.Sprintf("rule %s : %v", n.Identifier, n.Expression)
-}
+func (n RuleNode) String() string { return fmt.Sprintf("rule %s : %v", n.Identifier, n.Expression) }
 func (n PrecedenceNode) String() string {
     var assoc string
     if n.Associativity == LEFT_ASSOC {
@@ -323,9 +319,7 @@ func (n TokenNode) String() string {
     }
     return fmt.Sprintf("token %s : %v", n.Identifier, n.Expression)
 }
-func (n FragmentNode) String() string {
-    return fmt.Sprintf("frag %s : %v", n.Identifier, n.Expression)
-}
+func (n FragmentNode) String() string { return fmt.Sprintf("frag %s : %v", n.Identifier, n.Expression) }
 
 func (n OptionNode) String() string { return fmt.Sprintf("(%v)?", n.Expression) }
 func (n RepeatNode) String() string { return fmt.Sprintf("(%v)*", n.Expression) }
