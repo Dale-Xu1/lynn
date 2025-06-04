@@ -32,7 +32,7 @@ The rewriting process only occurs if an explicit precedence level is assigned to
 Precedence statements must be listed in order of lowest to highest.
 
 ```
-precedence assign : right // Specifies right associativity
+prec assign : right // Specifies right associativity
 rule expr : l=expr "=" r=expr  #assignExpr %assign ;
 ```
 
