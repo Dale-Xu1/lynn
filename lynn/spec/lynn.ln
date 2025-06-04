@@ -1,31 +1,38 @@
 rule grammar : stmt* ;
 rule stmt
-    : RULE     IDENTIFIER ":" expr ";"                 #ruleStmt
-    | TOKEN    IDENTIFIER ":" expr s=("->" SKIP)? ";"  #tokenStmt
-    | FRAGMENT IDENTIFIER ":" expr ";"                 #fragmentStmt
+    : RULE       IDENTIFIER ":" expr ";"                 #ruleStmt
+    | PRECEDENCE IDENTIFIER v=(":" a=(LEFT | RIGHT))?    #precedenceStmt
+    | TOKEN      IDENTIFIER ":" expr s=("->" SKIP)? ";"  #tokenStmt
+    | FRAGMENT   IDENTIFIER ":" expr ";"                 #fragmentStmt
     | error ";"
     ;
 
+prec union  : left
+prec label
+prec concat : left
+prec alias
+prec quantifier
 rule expr
-    : l=expr "|" r=expr                      #unionExpr
-    | expr "#" IDENTIFIER a=(LEFT | RIGHT)?  #labelExpr
-    | l=expr r=expr                          #concatExpr
-    | IDENTIFIER "=" expr                    #aliasExpr
-    | expr op=("?" | "*" | "+")              #quantifierExpr
-    | "(" expr ")"                           #groupExpr
-    | IDENTIFIER                             #identifierExpr
-    | STRING                                 #stringExpr
-    | CLASS                                  #classExpr
-    | ERROR                                  #errorExpr
-    | "."                                    #anyExpr
+    : l=expr "|" r=expr                        #unionExpr      %union
+    | expr "#" IDENTIFIER p=("%" IDENTIFIER)?  #labelExpr      %label
+    | l=expr r=expr                            #concatExpr     %concat
+    | IDENTIFIER "=" expr                      #aliasExpr      %alias
+    | expr op=("?" | "*" | "+")                #quantifierExpr %quantifier
+    | "(" expr ")"                             #groupExpr
+    | IDENTIFIER                               #identifierExpr
+    | STRING                                   #stringExpr
+    | CLASS                                    #classExpr
+    | ERROR                                    #errorExpr
+    | "."                                      #anyExpr
     ;
 
 token WHITESPACE : [ \t\n\r]+ -> skip ;
 token COMMENT    : "//" .* [\n\r\0] | "/*" ("*" [^/] | [^*])* "*/" -> skip ;
 
 token RULE       : "rule" ;
+token PRECEDENCE : "prec" ;
 token TOKEN      : "token" ;
-token FRAGMENT   : "fragment" ;
+token FRAGMENT   : "frag" ;
 token LEFT       : "left" ;
 token RIGHT      : "right" ;
 token ERROR      : "error" ;
@@ -38,6 +45,7 @@ token QUESTION   : "?" ;
 token DOT        : "." ;
 token BAR        : "|" ;
 token HASH       : "#" ;
+token PERCENT    : "%" ;
 token SEMI       : ";" ;
 token COLON      : ":" ;
 token L_PAREN    : "(" ;
@@ -48,6 +56,6 @@ token IDENTIFIER : LETTER (LETTER | DIGIT)* ;
 token STRING     : "\"" ([^\\\n\r"] | ESCAPE)* "\"" ;
 token CLASS      : "[" "^"? ([^\\\n\r\]] | ESCAPE)* "]" ;
 
-fragment DIGIT   : [0-9] ;
-fragment LETTER  : [a-zA-Z_] ;
-fragment ESCAPE  : "\\" . ;
+frag DIGIT   : [0-9] ;
+frag LETTER  : [a-zA-Z_] ;
+frag ESCAPE  : "\\" . ;

@@ -5,6 +5,7 @@
         "LALR",
         "LDFA",
         "LNFA",
-        "unreads"
+        "unreads",
+        "prec"
     ]
 }

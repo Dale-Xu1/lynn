@@ -11,9 +11,10 @@ import (
 type AST fmt.Stringer
 // Node representing the entire grammar as a list of rules.
 type GrammarNode struct {
-    Rules     []*RuleNode
-    Tokens    []*TokenNode
-    Fragments []*FragmentNode
+    Rules      []*RuleNode
+    Precedence []*PrecedenceNode
+    Tokens     []*TokenNode
+    Fragments  []*FragmentNode
 }
 
 // Node representing a grammar rule. Specifies the rule's identifier and regular expression.
@@ -21,6 +22,13 @@ type RuleNode struct {
     Identifier *IdentifierNode
     Expression AST
     Start, End Location
+}
+
+// Node representing a precedence statement. Specifies the a precedence level and its associativity.
+type PrecedenceNode struct {
+    Identifier    *IdentifierNode
+    Associativity AssociativityType
+    Start, End    Location
 }
 
 // Node representing a token rule. Specifies the token's identifier and regular expression.
@@ -51,10 +59,10 @@ type AssociativityType uint
 const (NO_ASSOC AssociativityType = iota; LEFT_ASSOC; RIGHT_ASSOC)
 // Node representing a rule case label. Specifies the callback identifier and associativity for the disambiguation process.
 type LabelNode struct {
-    Expression    AST
-    Identifier    *IdentifierNode
-    Associativity AssociativityType
-    Start, End    Location
+    Expression AST
+    Identifier *IdentifierNode
+    Precedence *IdentifierNode
+    Start, End Location
 }
 
 // Node representing an alias. Specifies the alias identifier and the corresponding expression.
@@ -91,15 +99,16 @@ type ParseTreeVisitor struct { }
 func NewParseTreeVisitor() ParseTreeVisitor { return ParseTreeVisitor { } }
 
 func (v ParseTreeVisitor) VisitGrammar(node *ParseTreeNode) AST {
-    rules, tokens, fragments := make([]*RuleNode, 0), make([]*TokenNode, 0), make([]*FragmentNode, 0)
+    rules, precedence, tokens, fragments := make([]*RuleNode, 0), make([]*PrecedenceNode, 0), make([]*TokenNode, 0), make([]*FragmentNode, 0)
     for _, node := range node.Stmt().(*ParseTreeNode).Children {
         switch rule := VisitNode(v, node.(*ParseTreeNode)).(type) {
         case *RuleNode: rules = append(rules, rule)
+        case *PrecedenceNode: precedence = append(precedence, rule)
         case *TokenNode: tokens = append(tokens, rule)
         case *FragmentNode: fragments = append(fragments, rule)
         }
     }
-    return &GrammarNode { rules, tokens, fragments }
+    return &GrammarNode { rules, precedence, tokens, fragments }
 }
 
 func (v ParseTreeVisitor) VisitStmt(node *ParseTreeNode) AST { panic("Invalid statement") }
@@ -107,6 +116,20 @@ func (v ParseTreeVisitor) VisitRuleStmt(node *ParseTreeNode) AST {
     id := node.IDENTIFIER().(Token)
     identifier := &IdentifierNode { id.Value, id.Start, id.End }
     return &RuleNode { identifier, VisitNode(v, node.Expr()), node.Start, node.End }
+}
+
+func (v ParseTreeVisitor) VisitPrecedenceStmt(node *ParseTreeNode) AST {
+    id := node.IDENTIFIER().(Token)
+    identifier := &IdentifierNode { id.Value, id.Start, id.End }
+    var assoc AssociativityType
+    if v, ok := node.V().(*ParseTreeNode); ok {
+        switch v.A().(Token).Type {
+        case LEFT:  assoc = LEFT_ASSOC
+        case RIGHT: assoc = RIGHT_ASSOC
+        default: panic("Invalid associativity type")
+        }
+    } else { assoc = NO_ASSOC }
+    return &PrecedenceNode { identifier, assoc, node.Start, node.End }
 }
 
 func (v ParseTreeVisitor) VisitTokenStmt(node *ParseTreeNode) AST {
@@ -129,16 +152,13 @@ func (v ParseTreeVisitor) VisitUnionExpr(node *ParseTreeNode) AST {
 
 func (v ParseTreeVisitor) VisitLabelExpr(node *ParseTreeNode) AST {
     id := node.IDENTIFIER().(Token)
-    var assoc AssociativityType
-    if t, ok := node.A().(Token); ok {
-        switch t.Type {
-        case LEFT:  assoc = LEFT_ASSOC
-        case RIGHT: assoc = RIGHT_ASSOC
-        default: panic("Invalid associativity type")
-        }
-    } else { assoc = NO_ASSOC }
     identifier := &IdentifierNode { id.Value, id.Start, id.End }
-    return &LabelNode { VisitNode(v, node.Expr()), identifier, assoc, node.Start, node.End }
+    var precedence *IdentifierNode
+    if t, ok := node.P().(*ParseTreeNode); ok {
+        n := t.IDENTIFIER().(Token)
+        precedence = &IdentifierNode { n.Value, n.Start, n.End }
+    }
+    return &LabelNode { VisitNode(v, node.Expr()), identifier, precedence, node.Start, node.End }
 }
 
 func (v ParseTreeVisitor) VisitConcatExpr(node *ParseTreeNode) AST {
@@ -284,6 +304,15 @@ func (n GrammarNode) String() string {
 func (n RuleNode) String() string {
     return fmt.Sprintf("rule %s : %v", n.Identifier, n.Expression)
 }
+func (n PrecedenceNode) String() string {
+    var assoc string
+    if n.Associativity == LEFT_ASSOC {
+        assoc = "left"
+    } else {
+        assoc = "right"
+    }
+    return fmt.Sprintf("prec %s : %s", n.Identifier, assoc)
+}
 func (n TokenNode) String() string {
     if n.Skip {
         return fmt.Sprintf("token skip %s : %v", n.Identifier, n.Expression)
@@ -291,7 +320,7 @@ func (n TokenNode) String() string {
     return fmt.Sprintf("token %s : %v", n.Identifier, n.Expression)
 }
 func (n FragmentNode) String() string {
-    return fmt.Sprintf("fragment %s : %v", n.Identifier, n.Expression)
+    return fmt.Sprintf("frag %s : %v", n.Identifier, n.Expression)
 }
 
 func (n OptionNode) String() string { return fmt.Sprintf("(%v)?", n.Expression) }
@@ -299,13 +328,9 @@ func (n RepeatNode) String() string { return fmt.Sprintf("(%v)*", n.Expression) 
 func (n RepeatOneNode) String() string { return fmt.Sprintf("(%v)+", n.Expression) }
 
 func (n LabelNode) String() string {
-    var assoc string
-    if n.Associativity == LEFT_ASSOC {
-        assoc = "left"
-    } else {
-        assoc = "right"
-    }
-    return fmt.Sprintf("(%v) #%s %s", n.Expression, n.Identifier, assoc)
+    var precedence string
+    if n.Precedence != nil { precedence = fmt.Sprintf(" %%%s", n.Precedence) }
+    return fmt.Sprintf("(%v) #%s%s", n.Expression, n.Identifier, precedence)
 }
 func (n AliasNode) String() string { return fmt.Sprintf("(%s = %v)", n.Identifier, n.Expression) }
 

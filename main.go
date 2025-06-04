@@ -33,6 +33,7 @@ func main() {
         return
     }
     fmt.Println("2/8 - Created abstract syntax tree")
+    fmt.Println(ast)
 
     // Generate lexer data and compile to program
     fmt.Println("== Compiling lexer program file ==")
@@ -52,6 +53,7 @@ func main() {
 
     grammar, maps := lynn.NewGrammarGenerator().GenerateCFG(ast)
     fmt.Println("6/8 - Generated context-free grammar")
+    grammar.PrintGrammar()
 
     table := lynn.NewLALRParserGenerator().Generate(grammar)
     fmt.Println("7/8 - Generated LALR(1) parse table")

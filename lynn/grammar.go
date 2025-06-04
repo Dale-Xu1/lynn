@@ -97,7 +97,7 @@ func (g *GrammarGenerator) GenerateCFG(grammar *GrammarNode) (*Grammar, map[*Pro
         t := NonTerminal(rule.Identifier.Name)
         g.flattenProductions(t, rule.Expression)
     }
-    g.removeAmbiguities()
+    g.removeAmbiguities(grammar)
     // Collect accumulated data into grammar struct
     return &Grammar { terminals, g.nonTerminals, g.nonTerminals[0], g.productions }, g.aliasMaps
 }
@@ -115,8 +115,13 @@ func (g *GrammarGenerator) flattenProductions(left NonTerminal, expression AST) 
     for _, node := range cases {
         // If a label exists, get visitor name, otherwise default to non-terminal name
         label, ok := node.(*LabelNode)
-        visitor := string(left)
-        if ok { node = label.Expression; visitor = label.Identifier.Name }
+        var visitor string
+        if ok {
+            node = label.Expression
+            visitor = label.Identifier.Name
+        } else {
+            visitor = string(left)
+        }
         // For each case, flatten concatenated nodes and convert nodes in list to symbols
         production := g.flattenConcatCFG(left, node, visitor)
         g.productions = append(g.productions, production)
@@ -258,61 +263,80 @@ func (g *GrammarGenerator) literalCFG(expression AST) (Symbol, bool) {
 
 // Removes simple precedence and associativity operator-form ambiguities in the grammar.
 // Not guaranteed to remove all ambiguities, but will resolve those of infix, prefix, and postfix operations.
-func (g *GrammarGenerator) removeAmbiguities() {
+func (g *GrammarGenerator) removeAmbiguities(grammar *GrammarNode) {
     type AmbiguityType uint
     const (INFIX AmbiguityType = iota; PREFIX; POSTFIX)
     type Ambiguity struct { ambiguityType AmbiguityType; production *Production }
+    // Read precedence declarations in grammar
+    precedence, associativity := make(map[string]int), make([]AssociativityType, 0)
+    for _, p := range grammar.Precedence {
+        id := p.Identifier
+        if _, ok := precedence[id.Name]; ok {
+            fmt.Printf("Generation error: Precedence \"%s\" is already defined - %d:%d\n", id.Name, id.Start.Line, id.Start.Col)
+            continue
+        }
+        i := len(precedence); precedence[id.Name] = i
+        associativity = append(associativity, p.Associativity)
+    }
     // Group productions together based on their non-terminal
     productions := make(map[NonTerminal][]*Production, len(g.nonTerminals))
     for _, p := range g.productions { productions[p.Left] = append(productions[p.Left], p) }
     for nt, group := range productions {
-        // Split productions for a given non-terminal based on if there exists explicit left or right-recursion
-        a, rest := make([]Ambiguity, 0), make([]*Production, 0)
+        // Split productions for a given non-terminal based on if there exists a precedence label (and sort)
+        // Determine ambiguity type based on explicit left or right-recursion
+        a, rest := make([][]Ambiguity, len(precedence)), make([]*Production, 0)
         for _, p := range group {
-            if len(p.Right) >= 2 {
-                // TODO: Maybe change logic to only disambiguate if explicit label exists
-                // TODO: Also add way of grouping productions into the same precedence level?
+            if label, ok := g.labels[p]; ok && label.Precedence != nil {
                 l, r := p.Right[0] == nt, p.Right[len(p.Right) - 1] == nt
+                i := precedence[label.Precedence.Name]; assoc := associativity[i]
                 // Determine type of recursion and type of operator
                 switch {
-                case l && r: a = append(a, Ambiguity { INFIX, p }) // E -> E ... E
+                case l && r: // E -> E ... E
+                    a[i] = append(a[i], Ambiguity { INFIX, p })
+                    if assoc != NO_ASSOC { continue }
                 case l: // E -> E ...
-                    g.expectNoLabel(p)
-                    a = append(a, Ambiguity { POSTFIX, p })
+                    a[i] = append(a[i], Ambiguity { POSTFIX, p })
+                    if assoc == NO_ASSOC { continue }
                 case r: // E -> ... E
-                    g.expectNoLabel(p)
-                    a = append(a, Ambiguity { PREFIX, p })
+                    a[i] = append(a[i], Ambiguity { PREFIX, p })
+                    if assoc == NO_ASSOC { continue }
+                default: rest = append(rest, p)
                 }
-                if l || r { continue }
-            }
-            // If production is not both left and right recursive, expect no associativity label
-            g.expectNoLabel(p)
-            rest = append(rest, p)
+                fmt.Printf("Generation error: Precedence label cannot be used for current production - %d:%d\n",
+                    label.Start.Line, label.Start.Col)
+            } else { rest = append(rest, p) }
         }
         // At least one non-operation and one operation production must exist to perform disambiguation
         if len(a) == 0 || len(rest) == 0 { continue }
         // Divide non-terminal productions into multiple precedence levels
         left := nt
-        for i, m := range a {
+        for i, ambiguities := range a {
+            if len(ambiguities) == 0 { continue }
+            infix := false
+            for _, m := range ambiguities {
+                if m.ambiguityType == INFIX { infix = true; break }
+            }
             // Create new auxiliary non-terminal
             // Don't generate new non-terminal when last precedence level is a prefix or postfix operator
             next := left
-            if m.ambiguityType == INFIX || i < len(a) - 1 { next = g.deriveNonTerminal(nt) }
+            if infix || i < len(a) - 1 { next = g.deriveNonTerminal(nt) }
             // Modify existing productions
-            p := m.production; right := p.Right
-            p.Left = left
-            switch m.ambiguityType {
-            case INFIX:
-                // For infix ambiguity, eliminate either left or right-recursion to force associativity
-                // For left-associative productions,  E_k -> E_k ... E_{k + 1} (eliminate right-recursion)
-                // For right-associative productions, E_k -> E_{k + 1} ... E_k
-                if node, ok := g.labels[m.production]; ok && node.Associativity == RIGHT_ASSOC {
-                    right[0], right[len(right) - 1] = next, left // Make right-associative if explicit label exists
-                } else {
-                    right[0], right[len(right) - 1] = left, next
+            for i, m := range ambiguities {
+                p := m.production; right := p.Right
+                p.Left = left
+                switch m.ambiguityType {
+                case INFIX:
+                    // For infix ambiguity, eliminate either left or right-recursion to force associativity
+                    // For left-associative productions,  E_k -> E_k ... E_{k + 1} (eliminate right-recursion)
+                    // For right-associative productions, E_k -> E_{k + 1} ... E_k
+                    if associativity[i] == RIGHT_ASSOC {
+                        right[0], right[len(right) - 1] = next, left
+                    } else {
+                        right[0], right[len(right) - 1] = left, next
+                    }
+                case PREFIX:  right[len(right) - 1] = left
+                case POSTFIX: right[0] = left
                 }
-            case PREFIX:  right[len(right) - 1] = left
-            case POSTFIX: right[0] = left
             }
             if next != left {
                 g.productions = append(g.productions, &Production { AUXILIARY, left, []Symbol { next }, "" })
@@ -321,14 +345,6 @@ func (g *GrammarGenerator) removeAmbiguities() {
         }
         // Add all non-operation productions to highest precedence level non-terminal
         for _, p := range rest { p.Left = left }
-    }
-}
-
-func (g *GrammarGenerator) expectNoLabel(production *Production) {
-    // Raise error message if production has a label
-    if node, ok := g.labels[production]; ok && node.Associativity != NO_ASSOC {
-        fmt.Printf("Generation error: Associativity label cannot be used for current production - %d:%d\n",
-            node.Start.Line, node.Start.Col)
     }
 }
 
