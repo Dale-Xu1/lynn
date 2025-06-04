@@ -24,7 +24,7 @@ func main() {
         lynn.DEFAULT_PARSER_HANDLER(token)
         err = true
     }).Parse()
-    if err { return }
+    if err { Fail(); return }
     fmt.Println("1/8 - Generated parse tree")
 
     ast := lynn.NewParseTreeVisitor().VisitGrammar(tree).(*lynn.GrammarNode)
