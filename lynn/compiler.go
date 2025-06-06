@@ -144,44 +144,36 @@ func CompileParser(name string, table LRParseTable, maps map[*Production]map[str
         dispatchers = append(dispatchers, fmt.Sprintf("        case \"%s\": return visitor.Visit%s(n)", p.Visitor, visitor))
     }
     // Format action table
-    actionTable := make([]string, len(table.Action))
-    for i, entries := range table.Action {
-        l := len(entries)
-        if l == 0 {
-            actionTable[i] = "    { },"
-            continue
-        }
-        // Format action entries for each state
-        out := make([]string, 0, l)
-        for t, entry := range entries {
-            out = append(out, fmt.Sprintf("%d: { %d, %d }", tokenIndices[string(t)], entry.Type, entry.Value))
-        }
-        actionTable[i] = fmt.Sprintf("    { %s },", strings.Join(out, ", "))
-    }
-    // Format goto table
-    gotoTable := make([]string, len(table.Goto))
-    for i, entries := range table.Goto {
-        l := len(entries)
-        if l == 0 {
-            gotoTable[i] = "    { },"
-            continue
-        }
-        // Format goto entry for each state
-        out := make([]string, 0, l)
-        for t, state := range entries {
-            out = append(out, fmt.Sprintf("%d: %d", nonTerminalIndices[t], state))
-        }
-        gotoTable[i] = fmt.Sprintf("    { %s },", strings.Join(out, ", "))
+    parseTable := make([]string, len(table.Action))
+    for i := range len(parseTable) {
+        actions, gotos := table.Action[i], table.Goto[i]
+        var actionEntries, gotoEntries string
+        if len(actions) > 0 {
+            // Format action entries for each state
+            out := make([]string, 0, len(actions))
+            for t, entry := range actions {
+                out = append(out, fmt.Sprintf("%d: { %d, %d }", tokenIndices[string(t)], entry.Type, entry.Value))
+            }
+            actionEntries = fmt.Sprintf("{ %s }", strings.Join(out, ", "))
+        } else { actionEntries = "{ }" }
+        if len(gotos) > 0 {
+            // Format goto entry for each state
+            out := make([]string, 0, len(gotos))
+            for t, state := range gotos {
+                out = append(out, fmt.Sprintf("%d: %d", nonTerminalIndices[t], state))
+            }
+            gotoEntries = fmt.Sprintf("{ %s }", strings.Join(out, ", "))
+        } else { gotoEntries = "{ }"}
+        parseTable[i] = fmt.Sprintf("    { map[int]actionEntry %s, map[int]int %s },", actionEntries, gotoEntries)
     }
     // Replace sections with compiled parse table
     pairs := []string {
         "/*{0}*/", name,
         "/*{1}*/", strings.Join(productions, "\n"),
-        "/*{2}*/", strings.Join(actionTable, "\n"),
-        "/*{3}*/", strings.Join(gotoTable, "\n"),
-        "/*{4}*/", strings.Join(visitors, "\n"),
-        "/*{5}*/", strings.Join(dispatchers, "\n"),
-        "/*{6}*/", strings.Join(aliases, "\n"),
+        "/*{2}*/", strings.Join(parseTable, "\n"),
+        "/*{3}*/", strings.Join(visitors, "\n"),
+        "/*{4}*/", strings.Join(dispatchers, "\n"),
+        "/*{5}*/", strings.Join(aliases, "\n"),
     }
     result := strings.NewReplacer(pairs...).Replace(template)
     // Write modified template to lexer program file

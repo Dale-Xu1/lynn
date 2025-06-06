@@ -12,6 +12,12 @@ type productionData struct {
     visitor        string
     aliases        map[string]int
 }
+
+// Parse table entry struct. Holds action entries and goto table for a specific state.
+type tableEntry struct {
+    actions map[int]actionEntry
+    gotos   map[int]int
+}
 // Parse table action entry struct. Holds action type and integer parameter.
 type actionEntry struct {
     actionType, value int // For 0 actions, value represents a state identifier, for 1 actions, a production identifier
@@ -29,11 +35,8 @@ type ParseTreeNode struct {
 var productions = []productionData {
 /*{1}*/
 }
-var actionTable = []map[int]actionEntry {
+var parseTable = []tableEntry {
 /*{2}*/
-}
-var gotoTable = []map[int]int {
-/*{3}*/
 }
 
 // Parser struct. Converts token stream to parse tree.
@@ -44,7 +47,7 @@ type Parser struct {
 
 // Base visitor struct. Describes functions necessary to implement to traverse parse tree.
 type BaseVisitor[T any] interface {
-/*{4}*/
+/*{3}*/
 }
 
 // Function called when the parser encounters an error.
@@ -71,20 +74,20 @@ func (p *Parser) Parse() *ParseTreeNode {
         // Get the current state at the top of the stack and find the action to take
         // Next action is determined by action table given state index and the current token type
         state := stack[len(stack) - 1].state
-        action, ok := actionTable[state][int(token.Type)]
+        action, ok := parseTable[state].actions[int(token.Type)]
         if !ok {
             // If the table does not have a valid action, cannot parse current token
             p.handler(token)
             for {
                 // Pop states off the stack until a valid shift action on the error terminal is found
                 if len(stack) == 0 { return nil }
-                if action, ok := actionTable[state][-1]; ok && action.actionType == SHIFT {
+                if action, ok := parseTable[state].actions[-1]; ok && action.actionType == SHIFT {
                     // Shift token that caused error onto stack
                     // Then enter panic mode and read tokens until a valid action can be made
                     stack = append(stack, StackState { action.value, token })
                     for {
                         token = p.lexer.Next()
-                        if _, ok := actionTable[action.value][int(token.Type)]; ok { continue main }
+                        if _, ok := parseTable[action.value].actions[int(token.Type)]; ok { continue main }
                         if token.Type == EOF { return nil }
                     }
                 }
@@ -130,7 +133,7 @@ func (p *Parser) Parse() *ParseTreeNode {
             // Given new state at the top of the stack, find next state based on the goto table
             stack = stack[:i]
             state := stack[i - 1].state
-            next := gotoTable[state][production.left]
+            next := parseTable[state].gotos[production.left]
             // Add new state to top of the stack
             stack = append(stack, StackState { next, node })
         // Return non-terminal in auxiliary start production on accept
@@ -168,13 +171,13 @@ func findLocationRange(children []ParseTreeChild) (Location, Location) {
 func VisitNode[T any](visitor BaseVisitor[T], node ParseTreeChild) T {
     if n, ok := node.(*ParseTreeNode); ok {
         switch n.data.visitor {
-/*{5}*/
+/*{4}*/
         }
     }
     panic("Invalid parse tree child passed to VisitNode()")
 }
 
-/*{6}*/
+/*{5}*/
 
 // Given an alias, return the corresponding parse tree node child based on the production data.
 func (n *ParseTreeNode) GetAlias(alias string) ParseTreeChild {

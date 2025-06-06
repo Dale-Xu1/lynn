@@ -322,7 +322,7 @@ func (g *GrammarGenerator) removeAmbiguities(nodes []*PrecedenceNode) {
             next := left
             if infix || i < len(a) - 1 { next = g.deriveNonTerminal(nt) }
             // Modify existing productions
-            for i, m := range ambiguities {
+            for _, m := range ambiguities {
                 p := m.production; right := p.Right
                 p.Left = left
                 switch m.ambiguityType {

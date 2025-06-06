@@ -12,9 +12,9 @@ func main() {
     name := os.Args[2]
     if e != nil { panic(e) }
     defer f.Close()
+
     // Parse input grammar file and generate abstract syntax tree
     fmt.Println("== Parsing grammar definition file ==")
-
     err := false
     lexer := lynn.NewLexer(bufio.NewReader(f), func (stream *lynn.InputStream, char rune, location lynn.Location) {
         lynn.DEFAULT_LEXER_HANDLER(stream, char, location)
