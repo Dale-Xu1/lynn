@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -216,7 +217,7 @@ func (v ParseTreeVisitor) VisitAnyExpr(node *ParseTreeNode) AST {
 }
 
 func reduceString(chars []rune) []rune {
-    reduced := make([]rune, 0, len(chars))
+    result := make([]rune, 0, len(chars))
     for i := 0; i < len(chars); i++ {
         char := chars[i]
         switch {
@@ -224,16 +225,29 @@ func reduceString(chars []rune) []rune {
             i++
             // Replace escape sequences with special characters
             switch chars[i] {
-            case 't': reduced = append(reduced, '\t')
-            case 'n': reduced = append(reduced, '\n')
-            case 'r': reduced = append(reduced, '\r')
-            case '0': reduced = append(reduced, 0)
-            default: reduced = append(reduced, chars[i]) // Backslash is ignored for non-special characters
+            case '0': result = append(result, 0)
+            case 'a': result = append(result, '\a')
+            case 'b': result = append(result, '\b')
+            case 'f': result = append(result, '\f')
+            case 't': result = append(result, '\t')
+            case 'n': result = append(result, '\n')
+            case 'r': result = append(result, '\r')
+            case 'v': result = append(result, '\v')
+            case 'x':
+                if n, err := strconv.ParseInt(string(chars[i + 1:i + 3]), 16, 8); err == nil { result = append(result, rune(n)) }
+                i += 2
+            case 'u':
+                if n, err := strconv.ParseInt(string(chars[i + 1:i + 5]), 16, 16); err == nil { result = append(result, rune(n)) }
+                i += 4
+            case 'U':
+                if n, err := strconv.ParseInt(string(chars[i + 1:i + 9]), 16, 32); err == nil { result = append(result, rune(n)) }
+                i += 8
+            default: result = append(result, chars[i]) // Backslash is ignored for non-special characters
             }
-        default: reduced = append(reduced, chars[i])
+        default: result = append(result, chars[i])
         }
     }
-    return reduced
+    return result
 }
 
 func expandClass(chars []rune, location Location) []Range {
