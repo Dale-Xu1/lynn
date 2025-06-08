@@ -80,11 +80,14 @@ func (l *Lexer) Next() Token {
     start := l.stream.location
     input, stack := make([]rune, 0), make([]int, 0)
     i, state := 0, 0
+    var char rune
     for {
         // Read current character in stream and add to input
-        char := l.stream.Read(); input = append(input, char)
+        char = l.stream.Read()
+        input = append(input, char)
         next, ok := transitions[state][searchRange(char)]
-        if !ok { break } // Exit loop if we cannot transition from this state on the character
+        // Exit loop if we cannot transition from this state on the character
+        if !ok { l.stream.Unread(); break }
         // Store the visited states since the last occurring accepting state
         if _, ok := accept[state]; ok { stack = stack[:0] }
         stack = append(stack, state)
@@ -92,18 +95,19 @@ func (l *Lexer) Next() Token {
         i++
     }
     // Backtrack to last accepting state
+    location := l.stream.location
     var token TokenType
     for {
         // Unread current character
-        l.stream.Unread()
         if t, ok := accept[state]; ok { token = t; break }
         if len(stack) == 0 {
             // If no accepting state was encountered, raise error and synchronize
-            l.stream.synchronize(l.handler, input[i], l.stream.location)
+            l.stream.synchronize(l.handler, char, location)
             return l.Next() // Attempt to read token again
         }
         // Restore previously visited states
         state, stack = stack[len(stack) - 1], stack[:len(stack) - 1]
+        l.stream.Unread()
         i--
     }
     end := l.stream.stack[len(l.stream.stack) - 1].location
