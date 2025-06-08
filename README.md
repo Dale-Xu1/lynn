@@ -48,7 +48,8 @@ rule stmt : error ";" ; // If an error occurs when parsing a statement, synchron
 
 Here is the grammar that describes the Lynn grammar declaration language written using itself (found in `lynn.ln`):
 
-```rule grammar : stmt* ;
+```
+rule grammar : stmt* ;
 rule stmt
     : RULE       IDENTIFIER ":" expr ";"                 #ruleStmt
     | PRECEDENCE IDENTIFIER v=(":" a=(LEFT | RIGHT))?    #precedenceStmt
@@ -108,5 +109,6 @@ token CLASS      : "[" "^"? ([^\\\n\r\]] | ESCAPE)* "]" ;
 
 frag DIGIT   : [0-9] ;
 frag LETTER  : [a-zA-Z_] ;
-frag ESCAPE  : "\\" . ;
+frag HEX     : [0-9a-zA-Z] ;
+frag ESCAPE  : "\\" ([^\n\rxuU] | "x" HEX HEX | "u" HEX HEX HEX HEX | "U" HEX HEX HEX HEX HEX HEX HEX HEX) ;
 ```
