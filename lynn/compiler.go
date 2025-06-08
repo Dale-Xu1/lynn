@@ -16,9 +16,9 @@ func Error(message string) {
     occurred = true
 }
 
-// Compiles relevant lexer data to lexer program.
-func CompileLexer(name string, dfa LDFA, ranges []Range, grammar *GrammarNode) {
-    const LEXER_TEMPLATE string = "lynn/spec/lexer.template"
+// Compiles relevant lexer data to lexer program in Go.
+func CompileLexerGo(name string, dfa LDFA, ranges []Range, grammar *GrammarNode) {
+    const LEXER_TEMPLATE string = "lynn/spec/go/lexer.template"
     // Read template information
     data, err := os.ReadFile(LEXER_TEMPLATE)
     if err != nil { panic(err) }
@@ -86,9 +86,9 @@ func CompileLexer(name string, dfa LDFA, ranges []Range, grammar *GrammarNode) {
     f.WriteString(result)
 }
 
-// Compiles relevant parser data to parser program.
-func CompileParser(name string, table LRParseTable, maps map[*Production]map[string]int, grammar *GrammarNode) {
-    const PARSER_TEMPLATE string = "lynn/spec/parser.template"
+// Compiles relevant parser data to parser program in Go.
+func CompileParserGo(name string, table LRParseTable, maps map[*Production]map[string]int, grammar *GrammarNode) {
+    const PARSER_TEMPLATE string = "lynn/spec/go/parser.template"
     // Read template information
     data, err := os.ReadFile(PARSER_TEMPLATE)
     if err != nil { panic(err) }

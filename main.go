@@ -51,9 +51,9 @@ func main() {
     if lynn.Panic() { Fail(); return }
     fmt.Println("6/8 - Generated LALR(1) parse table")
 
-    lynn.CompileLexer(name, dfa, ranges, ast)
+    lynn.CompileLexerGo(name, dfa, ranges, ast)
     fmt.Println("7/8 - Compiled lexer program")
-    lynn.CompileParser(name, table, maps, ast)
+    lynn.CompileParserGo(name, table, maps, ast)
     fmt.Println("8/8 - Compiled parser program")
 }
 

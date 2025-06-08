@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 // Interface for nodes of abstract syntax tree.
@@ -278,13 +279,12 @@ func mergeRanges(ranges []Range) []Range {
 func negateRanges(ranges []Range) []Range {
     // Assumes ranges are already sorted and merged
     negated := make([]Range, 0, len(ranges) + 1)
-    const MAX rune = 0x10ffff // Maximum unicode character
     var start rune = 1
     for _, r := range ranges {
         if r.Min > start { negated = append(negated, Range { start, r.Min - 1 }) }
         start = r.Max + 1
     }
-    if start <= MAX { negated = append(negated, Range { start, MAX }) }
+    if start <= unicode.MaxRune { negated = append(negated, Range { start, unicode.MaxRune }) }
     return negated
 }
 
