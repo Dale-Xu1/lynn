@@ -285,7 +285,12 @@ func (g *GrammarGenerator) removeAmbiguities(nodes []*PrecedenceNode) {
         for _, p := range group {
             if label, ok := g.labels[p]; ok && label.Precedence != nil {
                 l, r := p.Right[0] == nt, p.Right[len(p.Right) - 1] == nt
-                i := precedence[label.Precedence.Name]; assoc := associativity[i]
+                i, ok := precedence[label.Precedence.Name]; assoc := associativity[i]
+                if !ok {
+                    Error(fmt.Sprintf("Precedence label \"%s\" is not defined - %d:%d",
+                        label.Precedence.Name, label.Start.Line, label.Start.Col))
+                    continue
+                }
                 // Determine type of recursion and type of operator
                 switch {
                 case l && r: // E -> E ... E

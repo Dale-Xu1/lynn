@@ -1,0 +1,179 @@
+// Represents type of token as an enumerated integer
+export const enum TokenType { /*{0}*/ }
+
+// Location class. Holds line and column of token
+export class Location { public constructor(public readonly line: number, readonly col: number) { } }
+
+// Token class, holds type, value, and location of token
+export class Token {
+    public constructor(public readonly type: TokenType, public readonly value: string,
+        public readonly start: Location, public readonly end: Location) { }
+}
+
+// Represents a range between characters
+export class Range { public constructor(public readonly min: number, public readonly max: number) { } }
+
+// Base lexer interface
+export interface BaseLexer { next(): Token }
+// Function called when the lexer encounters an error, expected to bring input stream to synchronization point
+export type LexerErrorHandler = (stream: InputStream, char: number, location: Location) => void
+// Lexer class, produces token stream
+export default class Lexer implements BaseLexer {
+    private static readonly skip: Set<TokenType> = new Set([/*{1}*/])
+    private static readonly ranges: Range[] = [/*{2}*/]
+    private static readonly transitions: Map<number, number>[] = [
+/*{3}*/
+    ]
+    private static readonly accept: Map<number, TokenType> = new Map([/*{4}*/])
+
+    public static readonly typeName: Map<TokenType, string> = new Map([/*{5}*/])
+    public static DEFAULT_LEXER_HANDLER(stream: InputStream, char: number, location: Location): void {
+        // Format special characters
+        let str: string
+        switch (char) {
+            case 32:          str = "space"; break
+            case 9:           str = "tab"; break
+            case 10: case 13: str = "new line"; break
+            case 0:           str = "end of file"; break
+            default:          str = `character "${String.fromCodePoint(char)}"`
+        }
+        // Print formatted error message given an unexpected character
+        console.error(`Syntax error: Unexpected ${str} - ${location.line}:${location.col}`)
+        // Find synchronization point
+        let whitespace = [ 0, 32, 9, 10, 13 ]
+        while (true) {
+            if (whitespace.includes(stream.read())) break
+        }
+    }
+
+    private readonly stream: InputStream
+
+    public constructor(input: string, private readonly handler: LexerErrorHandler = Lexer.DEFAULT_LEXER_HANDLER) {
+        this.stream = new InputStream(input)
+    }
+
+    // Emits next token in stream
+    public next(): Token {
+        let start = this.stream.location
+        let input: number[] = [], stack: number[] = []
+        let i = 0, state = 0
+        let char: number
+        while (true) {
+            // Read current character in stream and add to input
+            char = this.stream.read()
+            input.push(char)
+            let next = Lexer.transitions[state].get(Lexer.searchRange(char))
+            // Exit loop if we cannot transition from this state on the character
+            if (next === undefined) { this.stream.unread(); break }
+            // Store the visited states since the last occurring accepting state
+            if (Lexer.accept.get(state) !== undefined) stack.length = 0
+            stack.push(state)
+            state = next
+            i++
+        }
+        // Backtrack to last accepting state
+        let location = this.stream.location
+        let token: TokenType
+        while (true) {
+            // Unread current character
+            let accept = Lexer.accept.get(state)
+            if (accept !== undefined) { token = accept; break }
+            if (stack.length === 0) {
+                // If no accepting state was encountered, raise error and synchronize
+                this.stream.synchronize(this.handler, char, location)
+                return this.next() // Attempt to read token again
+            }
+            // Restore previously visited states
+            state = stack.pop()!
+            this.stream.unread()
+            i--
+        }
+        let end = this.stream.previous
+        this.stream.reset()
+        if (Lexer.skip.has(token)) return this.next() // Skip token
+        // Create token struct
+        return new Token(token, String.fromCodePoint(...input.slice(0, i)), start, end)
+    }
+
+    // Run binary search on character to find index associated with the range that contains the character
+    private static searchRange(char: number): number {
+        let low = 0, high = Lexer.ranges.length - 1
+        while (low <= high) {
+            let mid = Math.floor((low + high) / 2)
+            let r = Lexer.ranges[mid]
+            if (char >= r.min && char <= r.max) return mid
+            if (char > r.max) low = mid + 1
+            else high = mid - 1
+        }
+        return -1
+    }
+
+    // FOR DEBUG PURPOSES: Consumes all tokens emitted by lexer and prints them to the standard output
+    public printTokens(): void {
+        while (true) {
+            let token = this.next()
+            let location = `${token.start.line}:${token.start.col}-${token.end.line}:${token.end.col}`
+            console.log(`${location.padEnd(16)} | ${Lexer.typeName.get(token.type)!.padEnd(16)} ${token.value.padEnd(16)}`)
+            if (token.type === TokenType.EOF) break
+        }
+    }
+}
+
+class StreamData { public constructor(public readonly char: number, public readonly location: Location) { } }
+// Input stream class, produces character stream
+export class InputStream {
+    private readonly input: number[]
+    private index: number = 0
+
+    public location: Location = new Location(1, 1)
+    public get previous(): Location { return this.stack[this.stack.length - 1].location }
+
+    private readonly buffer: StreamData[] = []
+    private readonly stack:  StreamData[] = []
+
+    public constructor(input: string) { this.input = [...input].map(s => s.codePointAt(0)!) }
+
+    // Returns the next character in the input stream while maintaining location
+    public read(): number {
+        // Store previous location in stack and read next character
+        let location = this.location
+        let char = this.next()
+        this.stack.push(new StreamData(char, location))
+        return char
+    }
+
+    private next(): number {
+        // If buffered data exists, consume it before requesting new data from the reader
+        if (this.buffer.length > 0) {
+            let data = this.buffer.pop()!
+            this.location = data.location
+            return data.char
+        }
+        if (this.index >= this.input.length) return 0 // Return a null character if stream does not have any more characters to emit
+        let char = this.input[this.index++]
+        // Update current location based on character read
+        let line = this.location.line, col = this.location.col
+        switch (char) {
+            case 10: line++, col = 1; break
+            case 9:  col += 5 - col % 4; break
+            default: col++
+        }
+        this.location = new Location(line, col)
+        return char
+    }
+
+    // Unreads the current character in the input stream while maintaining location
+    public unread(): void {
+        if (this.stack.length === 0) return
+        let data = this.stack.pop()!
+        let location = this.location; this.location = data.location
+        this.buffer.push(new StreamData(data.char, location))
+    }
+
+    // Releases previously read characters
+    public reset(): void { this.stack.length = 0 }
+    public synchronize(handler: LexerErrorHandler, char: number, location: Location): void {
+        handler(this, char, location)
+        this.reset()
+    }
+}

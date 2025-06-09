@@ -217,6 +217,7 @@ func (i *InputStream) next() rune {
     l := &i.location
     switch char {
     case '\n': l.Line++; l.Col = 1
+    case '\t': l.Col += 5 - l.Col % 4
     default: l.Col++
     }
     return char
@@ -233,7 +234,6 @@ func (i *InputStream) Unread() {
 // Releases previously read characters.
 func (i *InputStream) reset() { i.stack = i.stack[:0] }
 func (i *InputStream) synchronize(handler LexerErrorHandler, char rune, location Location) {
-    i.reset()
     handler(i, char, location)
     i.reset()
 }

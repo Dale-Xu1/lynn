@@ -72,6 +72,10 @@ func main() {
     fmt.Println("6/8 - Generated LALR(1) parse table")
 
     fmt.Println("== Compiling generated programs... ==")
+    // _ = maps
+    // _ = table
+    // lynn.CompileLexerTS(dfa, ranges, ast)
+    // fmt.Println("7/8 - Compiled lexer program")
     lynn.CompileLexerGo(name, dfa, ranges, ast)
     fmt.Println("7/8 - Compiled lexer program")
     lynn.CompileParserGo(name, table, maps, ast)

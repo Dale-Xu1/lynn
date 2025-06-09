@@ -1,12 +1,15 @@
 {
     "cSpell.words": [
         "EBNF",
+        "Fprintf",
         "gotos",
         "Hopcroft",
         "LALR",
         "LDFA",
         "LNFA",
         "prec",
+        "Println",
+        "Sprintf",
         "unreads"
     ]
 }

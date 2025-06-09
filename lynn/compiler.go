@@ -3,6 +3,7 @@ package lynn
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -179,6 +180,74 @@ func CompileParserGo(name string, table LRParseTable, maps map[*Production]map[s
     // Write modified template to lexer program file
     if err := os.MkdirAll("out", 0755); err != nil { panic(err) }
     f, err := os.Create("out/parser.go")
+    if err != nil { panic(err) }
+    defer f.Close()
+    f.WriteString(result)
+}
+
+// ------------------------------------------------------------------------------------------------------------------------------
+
+// Compiles relevant lexer data to lexer program in TypeScript.
+func CompileLexerTS(dfa LDFA, ranges []Range, grammar *GrammarNode) {
+    const LEXER_TEMPLATE string = "lynn/spec/ts/lexer.template"
+    // Read template information
+    data, err := os.ReadFile(LEXER_TEMPLATE)
+    if err != nil { panic(err) }
+    template := string(data)
+    // Format token type information
+    tokens, typeName := make([]string, len(grammar.Tokens)), make([]string, len(grammar.Tokens))
+    tokenIndices := make(map[string]int, len(grammar.Tokens))
+    skip := make([]string, 0)
+    for i, token := range grammar.Tokens {
+        id := token.Identifier.Name
+        tokens[i], tokenIndices[id] = id, i
+        typeName[i] = fmt.Sprintf("[%d, \"%s\"]", i, id)
+        if token.Skip { skip = append(skip, strconv.Itoa(i)) }
+    }
+    // Format range information
+    rangeIndices := make(map[Range]int, len(ranges))
+    rangeStrings := make([]string, len(ranges))
+    for i, r := range ranges { rangeIndices[r] = i }
+    for i, r := range ranges {
+        rangeStrings[i] = fmt.Sprintf("new Range(%d, %d)", r.Min, r.Max)
+    }
+    // Format state information
+    stateIndices := map[*LDFAState]int { dfa.Start: 0 }
+    transitions := make([]string, len(dfa.States))
+    for _, state := range dfa.States {
+        if state != dfa.Start { stateIndices[state] = len(stateIndices) }
+    }
+    for _, state := range dfa.States {
+        i, l := stateIndices[state], len(state.Transitions)
+        if l == 0 {
+            transitions[i] = "        new Map(),"
+            continue
+        }
+        // Format outgoing transitions for each state
+        out := make([]string, 0, l)
+        for r, state := range state.Transitions {
+            out = append(out, fmt.Sprintf("[%d, %d]", rangeIndices[r], stateIndices[state]))
+        }
+        transitions[i] = fmt.Sprintf("        new Map([%s]),", strings.Join(out, ", "))
+    }
+    // Format accepting states
+    accept := make([]string, 0, len(dfa.Accept))
+    for state, token := range dfa.Accept {
+        accept = append(accept, fmt.Sprintf("[%d, %d]", stateIndices[state], tokenIndices[token]))
+    }
+    // Replace sections with compiled DFA
+    pairs := []string {
+        "/*{0}*/", strings.Join(tokens, ", "),
+        "/*{1}*/", strings.Join(skip, ", "),
+        "/*{2}*/", strings.Join(rangeStrings, ", "),
+        "/*{3}*/", strings.Join(transitions, "\n"),
+        "/*{4}*/", strings.Join(accept, ", "),
+        "/*{5}*/", strings.Join(typeName, ", "),
+    }
+    result := strings.NewReplacer(pairs...).Replace(template)
+    // Write modified template to lexer program file
+    if err := os.MkdirAll("out", 0755); err != nil { panic(err) }
+    f, err := os.Create("out/lexer.ts")
     if err != nil { panic(err) }
     defer f.Close()
     f.WriteString(result)
