@@ -2,6 +2,7 @@ package lynn
 
 import (
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -158,7 +159,7 @@ type BaseVisitor[T any] interface {
 // Function called when the parser encounters an error.
 type ParserErrorHandler func (token Token)
 var DEFAULT_PARSER_HANDLER = func (token Token) {
-    fmt.Printf("Syntax error: Unexpected token %q - %d:%d\n", token.Value, token.Start.Line, token.Start.Col)
+    fmt.Fprintf(os.Stderr, "Syntax error: Unexpected token %q - %d:%d\n", token.Value, token.Start.Line, token.Start.Col)
 }
 
 // Returns new parser struct.

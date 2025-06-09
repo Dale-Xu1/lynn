@@ -2,14 +2,33 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"lynn/lynn"
 	"os"
+	"path/filepath"
+	"strings"
 )
 
 func main() {
-    f, e := os.Open(os.Args[1])
-    name := os.Args[2]
+    // Configure CLI flags
+    cmd := filepath.Base(os.Args[0])
+    name := *flag.String("o", "", "Output package name (defaults to name of input file)")
+    flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: %s <path> [flags]\n", cmd)
+		fmt.Fprintln(os.Stderr, "Arguments:")
+		fmt.Fprintln(os.Stderr, "  [path]\n\tThe path to the input file")
+		flag.PrintDefaults()
+    }
+    flag.Parse()
+    args := flag.Args()
+    if len(args) != 1 {
+		fmt.Fprintf(os.Stderr, "Usage: %s <path> [flags]\n", cmd)
+        return
+    }
+    path := args[0]
+    if name == "" { name = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)) }
+    f, e := os.Open(path)
     if e != nil { panic(e) }
     defer f.Close()
 
@@ -57,4 +76,4 @@ func main() {
     fmt.Println("8/8 - Compiled parser program")
 }
 
-func Fail() { fmt.Println("Error occurred: Failed to generate programs") }
+func Fail() { fmt.Fprintln(os.Stderr, "Error occurred: Failed to generate programs") }

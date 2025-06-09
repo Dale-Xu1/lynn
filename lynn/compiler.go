@@ -12,7 +12,7 @@ func Panic() bool { return occurred }
 var occurred = false
 // Reports an error message.
 func Error(message string) {
-    fmt.Printf("Generation error: %s\n", message)
+    fmt.Fprintf(os.Stderr, "Generation error: %s\n", message)
     occurred = true
 }
 

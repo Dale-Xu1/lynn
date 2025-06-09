@@ -3,6 +3,7 @@ package /*{0}*/
 import (
 	"bufio"
 	"fmt"
+	"os"
 	"slices"
 )
 
@@ -60,7 +61,7 @@ var DEFAULT_LEXER_HANDLER = func (stream *InputStream, char rune, location Locat
     default:         str = fmt.Sprintf("character %q", string(char))
     }
     // Print formatted error message given an unexpected character
-    fmt.Printf("Syntax error: Unexpected %s - %d:%d\n", str, location.Line, location.Col)
+    fmt.Fprintf(os.Stderr, "Syntax error: Unexpected %s - %d:%d\n", str, location.Line, location.Col)
     // Find synchronization point
     var whitespace = []rune { 0, ' ', '\t', '\n', '\r' }
     for {
@@ -148,7 +149,7 @@ func (i *InputStream) Unread() {
     if len(i.stack) == 0 { return }
     data := i.stack[len(i.stack) - 1]; i.stack = i.stack[:len(i.stack) - 1]
     l := i.location; i.location = data.location
-    i.buffer = append(i.buffer, streamData{ data.char, l })
+    i.buffer = append(i.buffer, streamData { data.char, l })
 }
 
 // Releases previously read characters.
