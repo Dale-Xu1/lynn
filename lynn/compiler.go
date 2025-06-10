@@ -328,7 +328,7 @@ func CompileParserTS(table LRParseTable, maps map[*Production]map[string]int, gr
             }
             gotoEntries = fmt.Sprintf("[%s]", strings.Join(out, ", "))
         }
-        parseTable[i] = fmt.Sprintf("    new TableEntry(new Map(%s), new Map(%s)),", actionEntries, gotoEntries)
+        parseTable[i] = fmt.Sprintf("        new TableEntry(new Map(%s), new Map(%s)),", actionEntries, gotoEntries)
     }
     // Replace sections with compiled parse table
     pairs := []string {
