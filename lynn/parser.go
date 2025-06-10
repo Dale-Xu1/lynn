@@ -21,7 +21,7 @@ type tableEntry struct {
 }
 // Parse table action entry struct. Holds action type and integer parameter.
 type actionEntry struct {
-    actionType, value int // For 0 actions, value represents a state identifier, for 1 actions, a production identifier
+    actionType, value int // For shift actions, value represents a state identifier, for reduce actions, a production identifier
 }
 
 // Parse tree child interface. May either be a Token or ParseTreeNode struct.
@@ -135,7 +135,7 @@ type Parser struct {
     handler ParserErrorHandler
 }
 
-// Base visitor struct. Describes functions necessary to implement to traverse parse tree.
+// Base visitor interface. Describes functions necessary to implement to traverse parse tree.
 type BaseVisitor[T any] interface {
     VisitGrammar(node *ParseTreeNode) T
     VisitRuleStmt(node *ParseTreeNode) T
@@ -227,13 +227,12 @@ func (p *Parser) Parse() *ParseTreeNode {
                 list, element := stack[i].node.(*ParseTreeNode), stack[i + 1].node
                 list.Children = append(list.Children, element)
                 switch n := element.(type) {
-                case nil: continue
                 case *ParseTreeNode: list.End = n.End
                 case Token:          list.End = n.End
                 }
                 node = list
             case AUXILIARY: node = stack[i].node // For auxiliary productions, pass child through without generating new node
-            case REMOVED: node = nil // Add nil value for removed productions
+            case REMOVED:   node = nil // Add nil value for removed productions
             }
             // Pop consumed states off stack
             // Given new state at the top of the stack, find next state based on the goto table

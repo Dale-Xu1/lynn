@@ -1,0 +1,183 @@
+import { BaseLexer, Location, Token, TokenType } from "./lexer"
+
+// Production and action type enums
+const enum ProductionType { NORMAL, AUXILIARY, FLATTEN, REMOVED }
+const enum ActionType { SHIFT, REDUCE, ACCEPT }
+
+// Production data class, expresses a sequence of symbols that a given non-terminal may be expanded to in a grammar
+class ProductionData {
+    public constructor(public readonly type: ProductionType, public readonly left: number, public readonly length: number,
+        public readonly visitor: string, public readonly aliases: Map<string, number> | null) { }
+}
+
+// Parse table entry class, holds action entries and goto table for a specific state
+class TableEntry { public constructor(public readonly actions: Map<number, ActionEntry>, public readonly gotos: Map<number, number>) { } }
+// Parse table action entry class, holds action type and integer parameter
+// For shift actions, value represents a state identifier, for 1 actions, a production identifier
+class ActionEntry { public constructor(public readonly type: ActionType, public readonly value: number) { } }
+
+// Parse tree child interface, may either be a Token or ParseTreeNode
+export interface ParseTreeChild { string(indent: string): string }
+// Parse tree node class, contains child nodes and location range
+export class ParseTreeNode implements ParseTreeChild {
+    public constructor(public readonly children: (ParseTreeChild | null)[], public readonly start: Location, public readonly end: Location,
+        public readonly data: ProductionData) { }
+
+/*{0}*/
+
+    // Given an alias, return the corresponding parse tree node child based on the production data.
+    public getAlias(alias: string): ParseTreeChild | null {
+        if (this.data.aliases === null) return null
+        let i = this.data.aliases.get(alias)
+        if (i !== undefined) return this.children[i]
+        return null
+    }
+
+    // FOR DEBUG PURPOSES:
+    // Prints the parse tree to the standard output.
+    public print() { console.log(this.string("")) }
+    public string(indent: string): string {
+        let children: string[] = [], next = indent + "  "
+        for (let c of this.children) {
+            let str = "\n"
+            if (c === null) str += `${next}<nil>`
+            else            str += c.string(next)
+            children.push(str)
+        }
+        return `${indent}[${this.data.visitor}]${children.join("")}`
+    }
+}
+
+// Function called when the parser encounters an error
+export type ParserErrorHandler = (token: Token) => void
+// Parser class, converts token stream to parse tree
+export default class Parser {
+    private static readonly productions: ProductionData[] = [
+/*{1}*/
+    ]
+    private static readonly parseTable: TableEntry[] = [
+/*{2}*/
+    ]
+
+    public static DEFAULT_PARSER_HANDLER(token: Token) {
+        console.error(`Syntax error: Unexpected token \"${token.value}\" - ${token.start.line}:${token.start.col}`)
+    }
+
+    public constructor(private readonly lexer: BaseLexer, private readonly handler: ParserErrorHandler = Parser.DEFAULT_PARSER_HANDLER) { }
+
+    // Given a list of children, find the location range that they occupy
+    private static findLocationRange(children: (ParseTreeChild | null)[]): [Location, Location] {
+        let start!: Location, end!: Location
+        for (let c of children) {
+            // The start location is determined by the start of the first non-nil child
+            if (c == null) continue
+            else if (c instanceof ParseTreeNode) start = c.start
+            else if (c instanceof Token)         start = c.start
+            break
+        }
+        for (let i = children.length - 1; i >= 0; i--) {
+            let c = children[i]
+            // The end location is determined by the end of the last non-nil child
+            if (c == null) continue
+            else if (c instanceof ParseTreeNode) end = c.end
+            else if (c instanceof Token)         end = c.end
+            break
+        }
+        return [start, end]
+    }
+
+    // Generates parse tree based on token stream from lexer
+    public parse(): ParseTreeNode | null {
+        // Stack state class, holds the state identifier and the corresponding parse tree node
+        class StackState { public constructor(public readonly state: number, public readonly node: ParseTreeChild | null) { } }
+        // Initialize current token and stack
+        let token = this.lexer.next(), stack = [new StackState(0, null)]
+        main: while (true) {
+            // Get the current state at the top of the stack and find the action to take
+            // Next action is determined by action table given state index and the current token type
+            let state = stack[stack.length - 1].state
+            let action = Parser.parseTable[state].actions.get(token.type)
+            if (action === undefined) {
+                // If the table does not have a valid action, cannot parse current token
+                this.handler(token)
+                while (true) {
+                    // Pop states off the stack until a valid shift action on the error terminal is found
+                    if (stack.length === 0) return null
+                    let action = Parser.parseTable[state].actions.get(-1)
+                    if (action !== undefined && action.type === ActionType.SHIFT) {
+                        // Shift token that caused error onto stack
+                        // Then enter panic mode and read tokens until a valid action can be made
+                        stack.push(new StackState(action.value, token))
+                        while (true) {
+                            token = this.lexer.next()
+                            if (Parser.parseTable[action.value].actions.get(token.type) !== undefined) continue main
+                            if (token.type === TokenType.EOF) return null
+                        }
+                    }
+                    stack.pop()
+                    state = stack[stack.length - 1].state
+                }
+            }
+            switch (action.type) {
+                case ActionType.SHIFT:
+                    // For shift actions, add new state to the stack along with token
+                    stack.push(new StackState(action.value, token))
+                    token = this.lexer.next()
+                    break
+                case ActionType.REDUCE:
+                    // For reduce actions, pop states off stack and merge children into one node based on production
+                    let production = Parser.productions[action.value]
+                    let i = stack.length - production.length
+                    let node: ParseTreeChild | null
+                    switch (production.type) {
+                        case ProductionType.NORMAL:
+                            // Handle normal productions
+                            // Collect child nodes from current states on the stack and create node for reduction
+                            let children: (ParseTreeChild | null)[] = []
+                            for (let j = i; j < stack.length; j++) children[j - i] = stack[j].node
+                            // Find start and end locations
+                            let [start, end] = Parser.findLocationRange(children)
+                            node = new ParseTreeNode(children, start, end, production)
+                            break
+                        case ProductionType.FLATTEN:
+                            // Handle flatten productions
+                            // Of the two nodes popped, preserve the first and add the second as a child of the first
+                            // Results in quantified expressions in the grammar generating arrays of elements
+                            let list = stack[i].node! as ParseTreeNode, element = stack[i + 1].node
+                            list.children.push(element)
+                            if (element instanceof ParseTreeNode) list = new ParseTreeNode(list.children, list.start, element.end, list.data)
+                            else if (element instanceof Token)    list = new ParseTreeNode(list.children, list.start, element.end, list.data)
+                            node = list
+                            break
+                        // For auxiliary productions, pass child through without generating new node
+                        case ProductionType.AUXILIARY: node = stack[i].node; break
+                        case ProductionType.REMOVED:   node = null; break // Add nil value for removed productions
+                    }
+                    // Pop consumed states off stack
+                    // Given new state at the top of the stack, find next state based on the goto table
+                    stack.length = i
+                    let state = stack[i - 1].state
+                    let next = Parser.parseTable[state].gotos.get(production.left)!
+                    // Add new state to top of the stack
+                    stack.push(new StackState(next, node))
+                    break
+                // Return non-terminal in auxiliary start production on accept
+                case ActionType.ACCEPT: return stack[1].node as ParseTreeNode | null
+            }
+        }
+    }
+
+}
+
+// Base visitor interface, describes functions necessary to implement to traverse parse tree
+export interface BaseVisitor<T> {
+/*{3}*/
+}
+
+// Given a parse tree node, dispatches the corresponding function in the visitor.
+export function visitNode<T>(visitor: BaseVisitor<T>, node: ParseTreeChild): T {
+    if (node instanceof ParseTreeNode) switch (node.data.visitor) {
+/*{4}*/
+    }
+    throw new Error("Invalid parse tree child passed to visitNode()")
+}

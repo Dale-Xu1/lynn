@@ -13,9 +13,10 @@ import (
 func main() {
     // Configure CLI flags
     cmd := filepath.Base(os.Args[0])
-    var name string; var log bool
-    flag.StringVar(&name, "o", "", "Output package name (defaults to name of input file)")
-    flag.BoolVar(&log, "l", false, "Log syntax tree and augmented grammar")
+    var name, lang string; var log bool
+    flag.StringVar(&name, "o", "", "Output Go package name (defaults to name of input file, not used in TypeScript compilation)")
+    flag.StringVar(&lang, "l", "go", "Output program language (\"go\" or \"ts\", defaults to \"go\")")
+    flag.BoolVar(&log, "a", false, "Log syntax tree and augmented grammar")
     flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [flags] <path>\n", cmd)
 		fmt.Fprintln(os.Stderr, "Arguments:")
@@ -72,14 +73,19 @@ func main() {
     fmt.Println("6/8 - Generated LALR(1) parse table")
 
     fmt.Println("== Compiling generated programs... ==")
-    // _ = maps
-    // _ = table
-    // lynn.CompileLexerTS(dfa, ranges, ast)
-    // fmt.Println("7/8 - Compiled lexer program")
-    lynn.CompileLexerGo(name, dfa, ranges, ast)
-    fmt.Println("7/8 - Compiled lexer program")
-    lynn.CompileParserGo(name, table, maps, ast)
-    fmt.Println("8/8 - Compiled parser program")
+    switch lang {
+    case "go":
+        lynn.CompileLexerGo(name, dfa, ranges, ast)
+        fmt.Println("7/8 - Compiled lexer program")
+        lynn.CompileParserGo(name, table, maps, ast)
+        fmt.Println("8/8 - Compiled parser program")
+    case "ts":
+        lynn.CompileLexerTS(dfa, ranges, ast)
+        fmt.Println("7/8 - Compiled lexer program")
+        lynn.CompileParserTS(table, maps, ast)
+        fmt.Println("8/8 - Compiled parser program")
+    default: Fail()
+    }
 }
 
 func Fail() { fmt.Fprintln(os.Stderr, "Error occurred: Failed to generate programs") }

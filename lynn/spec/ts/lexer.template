@@ -1,3 +1,5 @@
+import { ParseTreeChild } from "./parser"
+
 // Represents type of token as an enumerated integer
 export const enum TokenType { /*{0}*/ }
 
@@ -5,9 +7,11 @@ export const enum TokenType { /*{0}*/ }
 export class Location { public constructor(public readonly line: number, readonly col: number) { } }
 
 // Token class, holds type, value, and location of token
-export class Token {
+export class Token implements ParseTreeChild {
     public constructor(public readonly type: TokenType, public readonly value: string,
         public readonly start: Location, public readonly end: Location) { }
+
+    public string(indent: string): string { return `${indent}<${Lexer.typeName.get(this.type)} ${this.value}>` }
 }
 
 // Represents a range between characters
@@ -35,7 +39,7 @@ export default class Lexer implements BaseLexer {
             case 9:           str = "tab"; break
             case 10: case 13: str = "new line"; break
             case 0:           str = "end of file"; break
-            default:          str = `character "${String.fromCodePoint(char)}"`
+            default:          str = `character "${String.fromCodePoint(char)}"; break`
         }
         // Print formatted error message given an unexpected character
         console.error(`Syntax error: Unexpected ${str} - ${location.line}:${location.col}`)
@@ -156,7 +160,7 @@ export class InputStream {
         switch (char) {
             case 10: line++, col = 1; break
             case 9:  col += 5 - col % 4; break
-            default: col++
+            default: col++; break
         }
         this.location = new Location(line, col)
         return char

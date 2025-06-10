@@ -14,9 +14,11 @@ Usage: lynn [flags] <path>
 Arguments:
   <path>
     	The path to the input file
-  -l	Log syntax tree and augmented grammar
+  -a	Log syntax tree and augmented grammar
+  -l string
+    	Output program language ("go" or "ts", defaults to "go") (default "go")
   -o string
-    	Output package name (defaults to name of input file)
+    	Output Go package name (defaults to name of input file, not used in TypeScript compilation)
 ```
 
 ## Features
