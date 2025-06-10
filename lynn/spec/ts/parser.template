@@ -25,7 +25,7 @@ export class ParseTreeNode implements ParseTreeChild {
 
 /*{0}*/
 
-    // Given an alias, return the corresponding parse tree node child based on the production data.
+    // Given an alias, return the corresponding parse tree node child based on the production data
     public getAlias(alias: string): ParseTreeChild | null {
         if (this.data.aliases === null) return null
         let i = this.data.aliases.get(alias)
@@ -34,7 +34,7 @@ export class ParseTreeNode implements ParseTreeChild {
     }
 
     // FOR DEBUG PURPOSES:
-    // Prints the parse tree to the standard output.
+    // Prints the parse tree to the standard output
     public print() { console.log(this.string("")) }
     public string(indent: string): string {
         let children: string[] = [], next = indent + "  "
@@ -174,7 +174,7 @@ export interface BaseVisitor<T> {
 /*{3}*/
 }
 
-// Given a parse tree node, dispatches the corresponding function in the visitor.
+// Given a parse tree node, dispatches the corresponding function in the visitor
 export function visitNode<T>(visitor: BaseVisitor<T>, node: ParseTreeChild): T {
     if (node instanceof ParseTreeNode) switch (node.data.visitor) {
 /*{4}*/
