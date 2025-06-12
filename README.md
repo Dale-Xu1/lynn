@@ -16,7 +16,7 @@ Arguments:
     	The path to the input file
   -a	Log syntax tree and augmented grammar
   -l string
-    	Output program language ("go" or "ts", defaults to "go") (default "go")
+    	Output program language ("go" or "ts") (default "go")
   -o string
     	Output Go package name (defaults to name of input file, not used in TypeScript compilation)
 ```
@@ -115,8 +115,8 @@ token IDENTIFIER : LETTER (LETTER | DIGIT)* ;
 token STRING     : "\"" ([^\\\n\r"] | ESCAPE)* "\"" ;
 token CLASS      : "[" "^"? ([^\\\n\r\]] | ESCAPE)* "]" ;
 
-frag DIGIT   : [0-9] ;
-frag LETTER  : [a-zA-Z_] ;
-frag HEX     : [0-9a-fA-F] ;
-frag ESCAPE  : "\\" ([^\n\rxuU] | "x" HEX HEX | "u" HEX HEX HEX HEX | "U" HEX HEX HEX HEX HEX HEX HEX HEX) ;
+frag DIGIT       : [0-9] ;
+frag LETTER      : [a-zA-Z_] ;
+frag HEX         : [0-9a-fA-F] ;
+frag ESCAPE      : "\\" ([^\n\rxuU] | "x" HEX HEX | "u" HEX HEX HEX HEX | "U" HEX HEX HEX HEX HEX HEX HEX HEX) ;
 ```

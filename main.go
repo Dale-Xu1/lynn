@@ -15,7 +15,7 @@ func main() {
     cmd := filepath.Base(os.Args[0])
     var name, lang string; var log bool
     flag.StringVar(&name, "o", "", "Output Go package name (defaults to name of input file, not used in TypeScript compilation)")
-    flag.StringVar(&lang, "l", "go", "Output program language (\"go\" or \"ts\", defaults to \"go\")")
+    flag.StringVar(&lang, "l", "go", "Output program language (\"go\" or \"ts\")")
     flag.BoolVar(&log, "a", false, "Log syntax tree and augmented grammar")
     flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [flags] <path>\n", cmd)

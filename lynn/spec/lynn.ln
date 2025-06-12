@@ -56,7 +56,7 @@ token IDENTIFIER : LETTER (LETTER | DIGIT)* ;
 token STRING     : "\"" ([^\\\n\r"] | ESCAPE)* "\"" ;
 token CLASS      : "[" "^"? ([^\\\n\r\]] | ESCAPE)* "]" ;
 
-frag DIGIT   : [0-9] ;
-frag LETTER  : [a-zA-Z_] ;
-frag HEX     : [0-9a-fA-F] ;
-frag ESCAPE  : "\\" ([^\n\rxuU] | "x" HEX HEX | "u" HEX HEX HEX HEX | "U" HEX HEX HEX HEX HEX HEX HEX HEX) ;
+frag DIGIT       : [0-9] ;
+frag LETTER      : [a-zA-Z_] ;
+frag HEX         : [0-9a-fA-F] ;
+frag ESCAPE      : "\\" ([^\n\rxuU] | "x" HEX HEX | "u" HEX HEX HEX HEX | "U" HEX HEX HEX HEX HEX HEX HEX HEX) ;
