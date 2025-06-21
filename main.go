@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"flag"
 	"fmt"
 	"lynn/lynn"
@@ -35,7 +34,7 @@ func main() {
     // Parse input grammar file and generate abstract syntax tree
     fmt.Println("== Parsing grammar definition file... ==")
     err := false
-    lexer := lynn.NewLexer(bufio.NewReader(f), func (stream *lynn.InputStream, char rune, location lynn.Location) {
+    lexer := lynn.NewLexer(f, func (stream *lynn.InputStream, char rune, location lynn.Location) {
         lynn.DEFAULT_LEXER_HANDLER(stream, char, location)
         err = true
     })

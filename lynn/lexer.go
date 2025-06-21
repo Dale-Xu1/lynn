@@ -3,6 +3,7 @@ package lynn
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 )
@@ -148,8 +149,8 @@ var DEFAULT_LEXER_HANDLER = func (stream *InputStream, char rune, location Locat
 }
 
 // Returns new lexer struct. Initializes lexer with initial token.
-func NewLexer(reader *bufio.Reader, handler LexerErrorHandler) *Lexer {
-    stream := &InputStream { reader, Location { 1, 1 }, make([]streamData, 0), make([]streamData, 0) }
+func NewLexer(reader io.Reader, handler LexerErrorHandler) *Lexer {
+    stream := &InputStream { bufio.NewReader(reader), Location { 1, 1 }, make([]streamData, 0), make([]streamData, 0) }
     lexer := &Lexer { stream, handler }
     return lexer
 }
