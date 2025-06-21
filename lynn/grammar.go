@@ -219,12 +219,9 @@ func (g *GrammarGenerator) flattenConcatCFG(left NonTerminal, expression AST, vi
         // Identifiers are accumulated as potential implicit aliases
         case *IdentifierNode: identifiers[n.Name] = append(identifiers[n.Name], i)
         // If the expression inside a quantifier is only an identifier, add as potential alias
-        case *OptionNode:
-            if id, ok := n.Expression.(*IdentifierNode); ok { identifiers[id.Name] = append(identifiers[id.Name], i) }
-        case *RepeatNode:
-            if id, ok := n.Expression.(*IdentifierNode); ok { identifiers[id.Name] = append(identifiers[id.Name], i) }
-        case *RepeatOneNode:
-            if id, ok := n.Expression.(*IdentifierNode); ok { identifiers[id.Name] = append(identifiers[id.Name], i) }
+        case *OptionNode:    if id, ok := n.Expression.(*IdentifierNode); ok { identifiers[id.Name] = append(identifiers[id.Name], i) }
+        case *RepeatNode:    if id, ok := n.Expression.(*IdentifierNode); ok { identifiers[id.Name] = append(identifiers[id.Name], i) }
+        case *RepeatOneNode: if id, ok := n.Expression.(*IdentifierNode); ok { identifiers[id.Name] = append(identifiers[id.Name], i) }
         }
         symbols = append(symbols, g.expandExpressionCFG(left, node))
     }
@@ -292,8 +289,7 @@ func (g *GrammarGenerator) removeAmbiguities(nodes []*PrecedenceNode) {
                 l, r := p.Right[0] == nt, p.Right[len(p.Right) - 1] == nt
                 i, ok := precedence[label.Precedence.Name]; assoc := associativity[i]
                 if !ok {
-                    Error(fmt.Sprintf("Precedence label \"%s\" is not defined - %d:%d",
-                        label.Precedence.Name, label.Start.Line, label.Start.Col))
+                    Error(fmt.Sprintf("Precedence label \"%s\" is not defined - %d:%d", label.Precedence.Name, label.Start.Line, label.Start.Col))
                     continue
                 }
                 // Determine type of recursion and type of operator
