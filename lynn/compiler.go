@@ -289,7 +289,7 @@ func CompileParserTS(table LRParseTable, maps map[*Production]map[string]int, gr
                 if _, ok := existingAliases[id]; ok { continue }
                 existingAliases[id] = struct{}{}
                 // Generate a method for the parse tree node for each alias
-                aliases = append(aliases, fmt.Sprintf("    public %s(): ParseTreeChild | null { return this.getAlias(\"%s\") }", id, id))
+                aliases = append(aliases, fmt.Sprintf("    public get %s(): ParseTreeChild | null { return this.getAlias(\"%s\") }", id, id))
             }
             out = fmt.Sprintf("new Map([%s])", strings.Join(entries, ", "))
         } else {
