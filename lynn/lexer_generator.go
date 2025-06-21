@@ -60,13 +60,14 @@ func (g *LexerGenerator) GenerateNFA(grammar *GrammarNode) (LNFA, []Range) {
     accept := make(map[*LNFAState]LNFAAccept, len(grammar.Tokens))
     for i, token := range grammar.Tokens {
         // Convert token expressions to NFAs and attach fragment to final NFA
-        nfa, ok := g.expressionNFA(token.Expression)
         id := token.Identifier
         if _, ok := tokens[id.Name]; ok {
             Error(fmt.Sprintf("Token \"%s\" is already defined - %d:%d", id.Name, id.Start.Line, id.Start.Col))
             continue
         }
         tokens[id.Name] = struct{}{}
+        if token.Expression == nil { continue }
+        nfa, ok := g.expressionNFA(token.Expression)
         if ok {
             // Invalid if accept node can be reached from the start node through only epsilon transitions
             if isAccessible(nfa.In, nfa.Out, make(map[*LNFAState]struct{})) {

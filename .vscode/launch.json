@@ -10,7 +10,7 @@
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}",
-            "args": ["-a", "-l", "ts", "lynn/spec/lynn.ln"]
+            "args": ["-a", "lynn/spec/lynn.ln"]
         }
     ]
 }

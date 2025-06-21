@@ -126,8 +126,8 @@ func (v ParseTreeVisitor) VisitPrecedenceStmt(node *ParseTreeNode) AST {
     id := node.IDENTIFIER().(Token)
     identifier := &IdentifierNode { id.Value, id.Start, id.End }
     var assoc AssociativityType
-    if v, ok := node.V().(*ParseTreeNode); ok {
-        switch v.A().(Token).Type {
+    if value, ok := node.V().(*ParseTreeNode); ok {
+        switch value.A().(Token).Type {
         case LEFT:  assoc = LEFT_ASSOC
         case RIGHT: assoc = RIGHT_ASSOC
         default: panic("Invalid associativity type")
@@ -139,8 +139,12 @@ func (v ParseTreeVisitor) VisitPrecedenceStmt(node *ParseTreeNode) AST {
 func (v ParseTreeVisitor) VisitTokenStmt(node *ParseTreeNode) AST {
     id := node.IDENTIFIER().(Token)
     identifier := &IdentifierNode { id.Value, id.Start, id.End }
-    skip := node.S() != nil
-    return &TokenNode { identifier, VisitNode(v, node.Expr()), skip, node.Start, node.End }
+    var expr AST; var skip bool
+    if value, ok := node.V().(*ParseTreeNode); ok {
+        expr = VisitNode(v, value.Expr())
+        skip = value.S() != nil
+    }
+    return &TokenNode { identifier, expr, skip, node.Start, node.End }
 }
 
 func (v ParseTreeVisitor) VisitFragmentStmt(node *ParseTreeNode) AST {

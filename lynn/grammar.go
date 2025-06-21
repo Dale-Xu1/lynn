@@ -134,7 +134,12 @@ func (g *GrammarGenerator) expressionCFG(left NonTerminal, expression AST) {
     switch node := expression.(type) {
     case *OptionNode:
         // Create production including an epsilon production
-        g.expressionCFG(left, node.Expression)
+        if n, ok := node.Expression.(*ConcatNode); ok {
+            // Do not generate new non-terminal if the production is a concatenation
+            g.expressionCFG(left, n)
+        } else if s := g.expandExpressionCFG(left, node.Expression); s != nil {
+            g.productions = append(g.productions, &Production { AUXILIARY, left, []Symbol { s }, "" })
+        }
         g.productions = append(g.productions, &Production { REMOVED, left, []Symbol { }, "" })
     case *RepeatNode:
         // E -> E E' (E' can be repeated 0 or more times)
@@ -180,7 +185,7 @@ func (g *GrammarGenerator) flattenUnionCFG(left NonTerminal, node *UnionNode) {
     for _, node := range cases {
         if n, ok := node.(*ConcatNode); ok {
             // Do not generate new non-terminal if the production is a concatenation
-            g.productions = append(g.productions, g.flattenConcatCFG(left, n, ""))
+            g.expressionCFG(left, n)
         } else if s := g.expandExpressionCFG(left, node); s != nil {
             // For unions of multiple productions, ensure option/repeat constructs are given separate non-terminals
             g.productions = append(g.productions, &Production { AUXILIARY, left, []Symbol { s }, "" })
@@ -414,5 +419,5 @@ func (p Production)  String() string {
 // Prints all production rules of the grammar.
 func (g *Grammar) PrintGrammar() {
     fmt.Printf("[start: %s]\n", g.Start)
-    for _, production := range g.Productions { fmt.Println(production) }
+    for _, production := range g.Productions { fmt.Printf("%s %d\n", production, production.Type) }
 }

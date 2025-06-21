@@ -25,6 +25,8 @@ Arguments:
 
 In the grammar declaration file, the lexer is defined using `token` and `frag` statements that associate an identifier with a regular expression.
 Token expressions may refer to fragments via identifiers.
+It is also valid for token statements to contain no expression.
+The lexer will never generate any tokens of such a type, but may be used in the parser (this is useful if the user chooses to write a preprocessor for the lexer, which is enabled by the `BaseLexer` interface).
 Lynn will merge all token expressions into a DFA and compile it to a lexer program.
 
 The parser is defined using `rule` statements, which describe the LALR(1) context-free grammar.
@@ -39,7 +41,7 @@ The rewriting process only occurs if an explicit precedence level is assigned to
 Precedence statements must be listed in order of lowest to highest.
 
 ```
-prec assign : right // Specifies right associativity
+prec assign : right ; // Specifies right associativity
 rule expr : l=expr "=" r=expr  #assignExpr %assign ;
 ```
 
@@ -59,18 +61,18 @@ Here is the grammar that describes the Lynn grammar declaration language written
 ```
 rule grammar : stmt* ;
 rule stmt
-    : RULE       IDENTIFIER ":" expr ";"                 #ruleStmt
-    | PRECEDENCE IDENTIFIER v=(":" a=(LEFT | RIGHT))?    #precedenceStmt
-    | TOKEN      IDENTIFIER ":" expr s=("->" SKIP)? ";"  #tokenStmt
-    | FRAGMENT   IDENTIFIER ":" expr ";"                 #fragmentStmt
+    : RULE       IDENTIFIER ":" expr ";"                      #ruleStmt
+    | PRECEDENCE IDENTIFIER v=(":" a=(LEFT | RIGHT))? ";"     #precedenceStmt
+    | TOKEN      IDENTIFIER v=(":" expr s=("->" SKIP)?)? ";"  #tokenStmt
+    | FRAGMENT   IDENTIFIER ":" expr ";"                      #fragmentStmt
     | error ";"
     ;
 
-prec union  : left
-prec label
-prec concat : left
-prec alias
-prec quantifier
+prec union : left ;
+prec label ;
+prec concat : left ;
+prec alias ;
+prec quantifier ;
 rule expr
     : l=expr "|" r=expr                        #unionExpr      %union
     | expr "#" IDENTIFIER p=("%" IDENTIFIER)?  #labelExpr      %label
