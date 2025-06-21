@@ -137,8 +137,8 @@ func (g *GrammarGenerator) expressionCFG(left NonTerminal, expression AST) {
         if n, ok := node.Expression.(*ConcatNode); ok {
             // Do not generate new non-terminal if the production is a concatenation
             g.expressionCFG(left, n)
-        } else if s := g.expandExpressionCFG(left, node.Expression); s != nil {
-            g.productions = append(g.productions, &Production { AUXILIARY, left, []Symbol { s }, "" })
+        } else if t := g.expandExpressionCFG(left, node.Expression); t != nil {
+            g.productions = append(g.productions, &Production { AUXILIARY, left, []Symbol { t }, "" })
         }
         g.productions = append(g.productions, &Production { REMOVED, left, []Symbol { }, "" })
     case *RepeatNode:
@@ -186,9 +186,9 @@ func (g *GrammarGenerator) flattenUnionCFG(left NonTerminal, node *UnionNode) {
         if n, ok := node.(*ConcatNode); ok {
             // Do not generate new non-terminal if the production is a concatenation
             g.expressionCFG(left, n)
-        } else if s := g.expandExpressionCFG(left, node); s != nil {
+        } else if t := g.expandExpressionCFG(left, node); t != nil {
             // For unions of multiple productions, ensure option/repeat constructs are given separate non-terminals
-            g.productions = append(g.productions, &Production { AUXILIARY, left, []Symbol { s }, "" })
+            g.productions = append(g.productions, &Production { AUXILIARY, left, []Symbol { t }, "" })
         }
     }
 }
