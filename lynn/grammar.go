@@ -419,5 +419,14 @@ func (p Production)  String() string {
 // Prints all production rules of the grammar.
 func (g *Grammar) PrintGrammar() {
     fmt.Printf("[start: %s]\n", g.Start)
-    for _, production := range g.Productions { fmt.Printf("%s %d\n", production, production.Type) }
+    for _, production := range g.Productions {
+        var str string
+        switch production.Type {
+        case NORMAL:    str = "normal"
+        case AUXILIARY: str = "auxiliary"
+        case FLATTEN:   str = "flatten"
+        case REMOVED:   str = "removed"
+        }
+        fmt.Printf("%s [%s]\n", production, str)
+    }
 }
