@@ -122,48 +122,9 @@ func (g *GrammarGenerator) flattenProductions(left NonTerminal, expression AST) 
             visitor = string(left)
         }
         // For each case, flatten concatenated nodes and convert nodes in list to symbols
-        production := g.flattenConcatCFG(left, node, visitor)
-        g.productions = append(g.productions, production)
         // Associate production with label node for later use in disambiguation
+        production := g.flattenConcatCFG(left, node, visitor)
         if ok { g.labels[production] = label }
-    }
-}
-
-// Converts a given expression node from the AST to its corresponding CFG structure.
-func (g *GrammarGenerator) expressionCFG(left NonTerminal, expression AST) {
-    switch node := expression.(type) {
-    case *OptionNode:
-        // Create production including an epsilon production
-        if n, ok := node.Expression.(*ConcatNode); ok {
-            // Do not generate new non-terminal if the production is a concatenation
-            g.expressionCFG(left, n)
-        } else if t := g.expandExpressionCFG(left, node.Expression); t != nil {
-            g.productions = append(g.productions, &Production { AUXILIARY, left, []Symbol { t }, "" })
-        }
-        g.productions = append(g.productions, &Production { REMOVED, left, []Symbol { }, "" })
-    case *RepeatNode:
-        // E -> E E' (E' can be repeated 0 or more times)
-        // E -> epsilon
-        if t := g.expandExpressionCFG(left, node.Expression); t != nil {
-            g.productions = append(g.productions,
-                &Production { FLATTEN, left, []Symbol { left, t }, "" },
-                &Production { NORMAL, left, []Symbol { }, "" })
-        }
-    case *RepeatOneNode:
-        // E -> E E'
-        // E -> E' (E' can be repeated 1 or more times)
-        if t := g.expandExpressionCFG(left, node.Expression); t != nil {
-            g.productions = append(g.productions,
-                &Production { FLATTEN, left, []Symbol { left, t }, "" },
-                &Production { NORMAL, left, []Symbol { t }, "" })
-        }
-    // New non-terminals are auxiliary when production is for a non-derived non-terminal
-    case *ConcatNode: g.productions = append(g.productions, g.flattenConcatCFG(left, node, ""))
-    case *UnionNode: g.flattenUnionCFG(left, node)
-    default:
-        if s, ok := g.literalCFG(node); s != nil {
-            g.productions = append(g.productions, &Production{ NORMAL, left, []Symbol { s }, "" })
-        } else if !ok { panic("Invalid expression node passed to GrammarGenerator.symbolCFG()") }
     }
 }
 
@@ -177,6 +138,44 @@ func (g *GrammarGenerator) expandExpressionCFG(left NonTerminal, expression AST)
     return t
 }
 
+// Converts a given expression node from the AST to its corresponding CFG structure.
+func (g *GrammarGenerator) expressionCFG(left NonTerminal, expression AST) {
+    switch node := expression.(type) {
+    case *OptionNode:
+        // Create production including an epsilon production
+        if n, ok := node.Expression.(*ConcatNode); ok {
+            // Do not generate new non-terminal if the production is a concatenation
+            g.flattenConcatCFG(left, n, "")
+        } else if t := g.expandExpressionCFG(left, node.Expression); t != nil {
+            g.productions = append(g.productions, &Production { AUXILIARY, left, []Symbol { t }, "" })
+        }
+        g.productions = append(g.productions, &Production { REMOVED, left, []Symbol { }, "" })
+    case *RepeatNode:
+        // E -> E E' (E' can be repeated 0 or more times)
+        // E -> epsilon
+        if t := g.expandExpressionCFG(left, node.Expression); t != nil {
+            g.productions = append(g.productions,
+                &Production { FLATTEN, left, []Symbol { left, t }, "" },
+                &Production { NORMAL,  left, []Symbol { }, "" })
+        }
+    case *RepeatOneNode:
+        // E -> E E'
+        // E -> E' (E' can be repeated 1 or more times)
+        if t := g.expandExpressionCFG(left, node.Expression); t != nil {
+            g.productions = append(g.productions,
+                &Production { FLATTEN, left, []Symbol { left, t }, "" },
+                &Production { NORMAL,  left, []Symbol { t }, "" })
+        }
+    // New non-terminals are auxiliary when production is for a non-derived non-terminal
+    case *ConcatNode: g.flattenConcatCFG(left, node, "")
+    case *UnionNode:  g.flattenUnionCFG(left, node)
+    default:
+        if s, ok := g.literalCFG(node); s != nil {
+            g.productions = append(g.productions, &Production{ NORMAL, left, []Symbol { s }, "" })
+        } else if !ok { panic("Invalid expression node passed to GrammarGenerator.symbolCFG()") }
+    }
+}
+
 // For a given set of nodes in a union from the AST, adds to a list of productions in CFG format.
 func (g *GrammarGenerator) flattenUnionCFG(left NonTerminal, node *UnionNode) {
     // Find all production cases for a given non-terminal by obtaining leaf nodes in a union
@@ -185,7 +184,7 @@ func (g *GrammarGenerator) flattenUnionCFG(left NonTerminal, node *UnionNode) {
     for _, node := range cases {
         if n, ok := node.(*ConcatNode); ok {
             // Do not generate new non-terminal if the production is a concatenation
-            g.expressionCFG(left, n)
+            g.flattenConcatCFG(left, n, "")
         } else if t := g.expandExpressionCFG(left, node); t != nil {
             // For unions of multiple productions, ensure option/repeat constructs are given separate non-terminals
             g.productions = append(g.productions, &Production { AUXILIARY, left, []Symbol { t }, "" })
@@ -237,6 +236,7 @@ func (g *GrammarGenerator) flattenConcatCFG(left NonTerminal, expression AST, vi
     // Create production struct
     // If alias map contains entries, create association between it and production
     production := &Production { NORMAL, left, symbols, visitor }
+    g.productions = append(g.productions, production)
     if len(aliases) > 0 { g.aliasMaps[production] = aliases }
     return production
 }
