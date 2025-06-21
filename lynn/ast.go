@@ -224,8 +224,8 @@ func reduceString(chars []rune) []rune {
     result := make([]rune, 0, len(chars))
     for i := 0; i < len(chars); i++ {
         char := chars[i]
-        switch {
-        case char == '\\':
+        switch char {
+        case '\\':
             i++
             // Replace escape sequences with special characters
             switch chars[i] {
@@ -259,8 +259,7 @@ func expandClass(chars []rune, location Location) []Range {
     expanded := make([]Range, 0, len(chars))
     for i := 0; i < len(chars); i++ {
         char := chars[i]
-        switch {
-        case char == '-' && i > 0 && i < len(chars) - 1: // Hyphen for range cannot be first or last character in class
+        if char == '-' && i > 0 && i < len(chars) - 1 { // Hyphen for range cannot be first or last character in class
             expanded = expanded[:len(expanded) - 1]
             if chars[i - 1] <= chars[i + 1] {
                 expanded = append(expanded, Range { chars[i - 1], chars[i + 1] })
@@ -270,8 +269,7 @@ func expandClass(chars []rune, location Location) []Range {
                     formatChar(chars[i - 1]), formatChar(chars[i + 1]), location.Line, location.Col))
             }
             i++
-        default: expanded = append(expanded, Range { char, char })
-        }
+        } else { expanded = append(expanded, Range { char, char }) }
     }
     if len(expanded) <= 1 { return expanded }
     return mergeRanges(expanded)
