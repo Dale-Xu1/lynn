@@ -66,7 +66,7 @@ var DEFAULT_LEXER_HANDLER = func (stream *InputStream, char rune, location Locat
     // Find synchronization point
     var whitespace = []rune { 0, ' ', '\t', '\n', '\r' }
     for {
-        if char := stream.next(); slices.Contains(whitespace, char) { break }
+        if char := stream.Next(); slices.Contains(whitespace, char) { break }
     }
 }
 
@@ -119,15 +119,16 @@ func (l *Lexer) Next() Token {
     return Token { token, string(input[:i]), start, end }
 }
 
-// Returns the next character in the input stream while maintaining location.
+// Reads the next character and associates it with location on stack.
 func (i *InputStream) Read() rune {
     // Store previous location in stack and read next character
-    l := i.location; char := i.next()
+    l := i.location; char := i.Next()
     i.stack = append(i.stack, streamData { char, l })
     return char
 }
 
-func (i *InputStream) next() rune {
+// Returns the Next character in the input stream while maintaining location.
+func (i *InputStream) Next() rune {
     // If buffered data exists, consume it before requesting new data from the reader
     if len(i.buffer) > 0 {
         data := i.buffer[len(i.buffer) - 1]; i.buffer = i.buffer[:len(i.buffer) - 1]

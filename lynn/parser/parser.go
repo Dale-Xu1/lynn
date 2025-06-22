@@ -1,4 +1,4 @@
-package lynn
+package parser
 
 import (
 	"fmt"

@@ -4,16 +4,16 @@ import (
 	"flag"
 	"fmt"
 	"lynn/lynn"
+	"lynn/lynn/parser"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 func main() {
     // Configure CLI flags
     cmd := filepath.Base(os.Args[0])
     var name, lang string; var log bool
-    flag.StringVar(&name, "o", "", "Output Go package name (defaults to name of input file, not used in TypeScript compilation)")
+    flag.StringVar(&name, "o", "parser", "Output Go package name")
     flag.StringVar(&lang, "l", "go", "Output program language (\"go\" or \"ts\")")
     flag.BoolVar(&log, "a", false, "Log syntax tree and augmented grammar")
     flag.Usage = func() {
@@ -26,7 +26,6 @@ func main() {
     args := flag.Args()
     if len(args) != 1 { flag.Usage(); return }
     path := args[0]
-    if name == "" { name = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)) }
     f, e := os.Open(path)
     if e != nil { panic(e) }
     defer f.Close()
@@ -34,12 +33,12 @@ func main() {
     // Parse input grammar file and generate abstract syntax tree
     fmt.Println("== Parsing grammar definition file... ==")
     err := false
-    lexer := lynn.NewLexer(f, func (stream *lynn.InputStream, char rune, location lynn.Location) {
-        lynn.DEFAULT_LEXER_HANDLER(stream, char, location)
+    lexer := parser.NewLexer(f, func (stream *parser.InputStream, char rune, location parser.Location) {
+        parser.DEFAULT_LEXER_HANDLER(stream, char, location)
         err = true
     })
-    tree := lynn.NewParser(lexer, func (token lynn.Token) {
-        lynn.DEFAULT_PARSER_HANDLER(token)
+    tree := parser.NewParser(lexer, func (token parser.Token) {
+        parser.DEFAULT_PARSER_HANDLER(token)
         err = true
     }).Parse()
     if err { Fail(); return }

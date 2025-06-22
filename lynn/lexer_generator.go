@@ -2,6 +2,7 @@ package lynn
 
 import (
 	"fmt"
+	"lynn/lynn/parser"
 	"regexp"
 	"slices"
 	"sort"
@@ -20,28 +21,28 @@ type LNFAAccept struct { Identifier string; Priority int }
 // Non-deterministic finite automata state struct.
 // Holds references to outgoing states and each transition's associated character range.
 type LNFAState struct {
-    Transitions map[Range]*LNFAState
+    Transitions map[parser.Range]*LNFAState
     Epsilon     []*LNFAState
 }
 
 // Deterministic finite automata struct.
-type LDFA = DFA[Range]
+type LDFA = DFA[parser.Range]
 // Deterministic finite automata state struct.
 // Holds references to outgoing states and each transition's associated character range.
-type LDFAState = DFAState[Range]
+type LDFAState = DFAState[parser.Range]
 
 // Lexer generator struct. Converts token definitions in abstract syntax tree (AST) to finite automata (FA).
 type LexerGenerator struct {
     fragments map[string]LNFAFragment	
-    ranges    map[Range]struct{}
+    ranges    map[parser.Range]struct{}
     accept    map[*LDFAState]string
 }
 
 // Returns a new lexer generator struct.
 func NewLexerGenerator() *LexerGenerator { return &LexerGenerator { } }
 // Converts regular expressions defined in grammar into a non-deterministic finite automata.
-func (g *LexerGenerator) GenerateNFA(grammar *GrammarNode) (LNFA, []Range) {
-    g.fragments, g.ranges = make(map[string]LNFAFragment), make(map[Range]struct{})
+func (g *LexerGenerator) GenerateNFA(grammar *GrammarNode) (LNFA, []parser.Range) {
+    g.fragments, g.ranges = make(map[string]LNFAFragment), make(map[parser.Range]struct{})
     tokens := make(map[string]struct{}, len(grammar.Fragments) + len(grammar.Tokens))
     for _, fragment := range grammar.Fragments {
         // Convert fragment expressions to NFAs and add fragment to identifier map
@@ -56,7 +57,7 @@ func (g *LexerGenerator) GenerateNFA(grammar *GrammarNode) (LNFA, []Range) {
     }
     // If EOF is not defined, add default token to list
     injectEOF(grammar)
-    start := &LNFAState { make(map[Range]*LNFAState, 0), make([]*LNFAState, 0, len(grammar.Tokens)) }
+    start := &LNFAState { make(map[parser.Range]*LNFAState, 0), make([]*LNFAState, 0, len(grammar.Tokens)) }
     accept := make(map[*LNFAState]LNFAAccept, len(grammar.Tokens))
     for i, token := range grammar.Tokens {
         // Convert token expressions to NFAs and attach fragment to final NFA
@@ -103,20 +104,20 @@ func (g *LexerGenerator) expressionNFA(expression AST) (LNFAFragment, bool) {
     // Implementation of Thompson's construction to generate an NFA from the AST
     case *OptionNode:
         nfa, ok := g.expressionNFA(node.Expression); if !ok { return nfa, ok }
-        out := &LNFAState { make(map[Range]*LNFAState, 0), make([]*LNFAState, 0) }
-        in := &LNFAState { make(map[Range]*LNFAState, 0), []*LNFAState { nfa.In, out } }
+        out := &LNFAState { make(map[parser.Range]*LNFAState, 0), make([]*LNFAState, 0) }
+        in := &LNFAState { make(map[parser.Range]*LNFAState, 0), []*LNFAState { nfa.In, out } }
         nfa.Out.AddEpsilon(out)
         return LNFAFragment { in, out }, true
     case *RepeatNode:
         nfa, ok := g.expressionNFA(node.Expression); if !ok { return nfa, ok }
-        out := &LNFAState { make(map[Range]*LNFAState, 0), make([]*LNFAState, 0) }
-        in := &LNFAState { make(map[Range]*LNFAState, 0), []*LNFAState { nfa.In, out } }
+        out := &LNFAState { make(map[parser.Range]*LNFAState, 0), make([]*LNFAState, 0) }
+        in := &LNFAState { make(map[parser.Range]*LNFAState, 0), []*LNFAState { nfa.In, out } }
         nfa.Out.AddEpsilon(nfa.In, out)
         return LNFAFragment { in, out }, true
     case *RepeatOneNode:
         nfa, ok := g.expressionNFA(node.Expression); if !ok { return nfa, ok }
-        out := &LNFAState { make(map[Range]*LNFAState, 0), make([]*LNFAState, 0) }
-        in := &LNFAState { make(map[Range]*LNFAState, 0), []*LNFAState { nfa.In } }
+        out := &LNFAState { make(map[parser.Range]*LNFAState, 0), make([]*LNFAState, 0) }
+        in := &LNFAState { make(map[parser.Range]*LNFAState, 0), []*LNFAState { nfa.In } }
         nfa.Out.AddEpsilon(nfa.In, out)
         return LNFAFragment { in, out }, true
 
@@ -130,8 +131,8 @@ func (g *LexerGenerator) expressionNFA(expression AST) (LNFAFragment, bool) {
         a, ok := g.expressionNFA(node.A); if !ok { return a, ok }
         b, ok := g.expressionNFA(node.B); if !ok { return b, ok }
         // Create in state with epsilon transitions to in states of both fragments
-        in, out := &LNFAState { make(map[Range]*LNFAState, 0), []*LNFAState { a.In, b.In } },
-            &LNFAState { make(map[Range]*LNFAState, 0), make([]*LNFAState, 0) }
+        in, out := &LNFAState { make(map[parser.Range]*LNFAState, 0), []*LNFAState { a.In, b.In } },
+            &LNFAState { make(map[parser.Range]*LNFAState, 0), make([]*LNFAState, 0) }
         a.Out.AddEpsilon(out) // Create epsilon transitions from out states of fragments to final out state
         b.Out.AddEpsilon(out)
         return LNFAFragment { in, out }, true
@@ -152,19 +153,19 @@ func (g *LexerGenerator) expressionNFA(expression AST) (LNFAFragment, bool) {
             return LNFAFragment { }, false
         }
         // Generate chain of states with transitions at each consecutive character
-        out := &LNFAState { make(map[Range]*LNFAState, 0), make([]*LNFAState, 0) }
+        out := &LNFAState { make(map[parser.Range]*LNFAState, 0), make([]*LNFAState, 0) }
         state := out
         for i := len(node.Chars) - 1; i >= 0; i-- {
             char := node.Chars[i]
-            r := Range { char, char }; g.ranges[r] = struct{}{}
-            state = &LNFAState { map[Range]*LNFAState { r: state }, make([]*LNFAState, 0) }
+            r := parser.Range { Min: char, Max: char }; g.ranges[r] = struct{}{}
+            state = &LNFAState { map[parser.Range]*LNFAState { r: state }, make([]*LNFAState, 0) }
         }
         return LNFAFragment { state, out }, true
     case *ClassNode:
         var in, out *LNFAState
         // Add transition from in to out for each character in class
-        in, out = &LNFAState { make(map[Range]*LNFAState, len(node.Ranges)), make([]*LNFAState, 0) },
-            &LNFAState { make(map[Range]*LNFAState, 0), make([]*LNFAState, 0) }
+        in, out = &LNFAState { make(map[parser.Range]*LNFAState, len(node.Ranges)), make([]*LNFAState, 0) },
+            &LNFAState { make(map[parser.Range]*LNFAState, 0), make([]*LNFAState, 0) }
         for _, r := range node.Ranges {
             in.Transitions[r] = out
             g.ranges[r] = struct{}{}
@@ -198,7 +199,7 @@ func isAccessible(state *LNFAState, target *LNFAState, visited map[*LNFAState]st
 // This operates by splitting the original ranges rather than merging them. Final output is a map from
 // the original range to its corresponding set of disjoined ranges.
 // For example: [1, 5], [4, 10] -> [1, 4], [4, 5], [5, 10]
-func disjoinRanges(ranges map[Range]struct{}) ([]Range, map[Range][]Range) {
+func disjoinRanges(ranges map[parser.Range]struct{}) ([]parser.Range, map[parser.Range][]parser.Range) {
     type Endpoint struct { value rune; start bool }
     // Sort endpoints of all ranges, marked as start or end
     endpoints := make([]Endpoint, 0, len(ranges) * 2)
@@ -209,15 +210,15 @@ func disjoinRanges(ranges map[Range]struct{}) ([]Range, map[Range][]Range) {
         return r.value < s.value
     })
     // Sweep endpoints to convert to disjoint integer intervals
-    disjoined, n := make([]Range, 0, len(endpoints)), 0
+    disjoined, n := make([]parser.Range, 0, len(endpoints)), 0
     var current rune
     for _, e := range endpoints {
         if e.start {
-            if n > 0 && e.value > current { disjoined = append(disjoined, Range { current, e.value - 1 }) }
+            if n > 0 && e.value > current { disjoined = append(disjoined, parser.Range { Min: current, Max: e.value - 1 }) }
             current = e.value
             n++
         } else {
-            if e.value >= current { disjoined = append(disjoined, Range { current, e.value }) }
+            if e.value >= current { disjoined = append(disjoined, parser.Range { Min: current, Max: e.value }) }
             current = e.value + 1
             n--
         }
@@ -228,9 +229,9 @@ func disjoinRanges(ranges map[Range]struct{}) ([]Range, map[Range][]Range) {
 // Given a set of ranges and a sorted list of disjoined ranges (output from disjoinRanges()),
 // create a map from the original range to the set of disjoined ranges that have the same union.
 // Ex. [1, 5] -> [1, 2], [3, 5]
-func createExpansionMap(ranges map[Range]struct{}, disjoined []Range) map[Range][]Range {
+func createExpansionMap(ranges map[parser.Range]struct{}, disjoined []parser.Range) map[parser.Range][]parser.Range {
     // Assume disjoined ranges are sorted and can be searched with binary search
-    search := func (target Range, value func (Range) rune) int {
+    search := func (target parser.Range, value func (parser.Range) rune) int {
         ref := value(target)
         low, high := 0, len(disjoined) - 1
         for low <= high {
@@ -245,14 +246,14 @@ func createExpansionMap(ranges map[Range]struct{}, disjoined []Range) map[Range]
         }
         return -1
     }
-    expansion := make(map[Range][]Range, len(ranges))
+    expansion := make(map[parser.Range][]parser.Range, len(ranges))
     for r := range ranges {
         // Search for disjoined range with matching endpoints
-        min, max := search(r, func (r Range) rune { return r.Min }), search(r, func (r Range) rune { return r.Max })
+        min, max := search(r, func (r parser.Range) rune { return r.Min }), search(r, func (r parser.Range) rune { return r.Max })
         if min == -1 || max == -1 { panic("Invalid range expansion") }
         if min == max { continue } // Expansion is unnecessary if range is unaffected
         // Map all disjoined ranges between min and max indices to original range
-        expanded := make([]Range, max - min + 1); expansion[r] = expanded
+        expanded := make([]parser.Range, max - min + 1); expansion[r] = expanded
         for i := range expanded {
             expanded[i] = disjoined[min + i]
         }
@@ -263,7 +264,7 @@ func createExpansionMap(ranges map[Range]struct{}, disjoined []Range) map[Range]
 // ------------------------------------------------------------------------------------------------------------------------------
 
 // Converts non-deterministic finite automata to deterministic finite automata.
-func (g *LexerGenerator) NFAtoDFA(nfa LNFA, ranges []Range) LDFA {
+func (g *LexerGenerator) NFAtoDFA(nfa LNFA, ranges []parser.Range) LDFA {
     subsets := make(map[string]*LDFAState)
     g.accept = make(map[*LDFAState]string, len(nfa.Accept))
     // Convert NFA to initial DFA through power-set construction
@@ -289,7 +290,7 @@ func (g *LexerGenerator) mergeTransitions(states []*LNFAState, nfa LNFA, subsets
 
     // Go through all transitions of all states in closure and find possible subsets reachable through each range
     l := 0; for state := range closure { l += len(state.Transitions) }
-    merged := make(map[Range][]*LNFAState, l)
+    merged := make(map[parser.Range][]*LNFAState, l)
     for state := range closure {
         for value, s := range state.Transitions {
             if merged[value] != nil {
@@ -298,7 +299,7 @@ func (g *LexerGenerator) mergeTransitions(states []*LNFAState, nfa LNFA, subsets
         }
     }
     // Create and store DFA state
-    state := &LDFAState{ make(map[Range]*LDFAState, len(merged)) }
+    state := &LDFAState{ make(map[parser.Range]*LDFAState, len(merged)) }
     subsets[key] = state
     if id, ok := nfa.resolveAccept(closure); ok { g.accept[state] = id }
     // Convert each subset that this state may transition into its own DFA state recursively
@@ -355,7 +356,7 @@ func (s *LNFAState) copy(copied map[*LNFAState]*LNFAState) *LNFAState {
     // If state has already been copied, return stored copy
     if state, ok := copied[s]; ok { return state }
     // Create and store new state struct and copy transitions
-    copy := &LNFAState { make(map[Range]*LNFAState, len(s.Transitions)), make([]*LNFAState, len(s.Epsilon), cap(s.Epsilon)) }
+    copy := &LNFAState { make(map[parser.Range]*LNFAState, len(s.Transitions)), make([]*LNFAState, len(s.Epsilon), cap(s.Epsilon)) }
     copied[s] = copy
     for value, state := range s.Transitions { copy.Transitions[value] = state.copy(copied) }
     for i, state := range s.Epsilon { copy.Epsilon[i] = state.copy(copied) }
@@ -363,12 +364,12 @@ func (s *LNFAState) copy(copied map[*LNFAState]*LNFAState) *LNFAState {
 }
 
 // Duplicate transitions based on expansion map created by createExpansionMap().
-func (s *LNFAState) expand(expansion map[Range][]Range, visited map[*LNFAState]struct{}) {
+func (s *LNFAState) expand(expansion map[parser.Range][]parser.Range, visited map[*LNFAState]struct{}) {
     // If state has already been expanded, exit
     if _, ok := visited[s]; ok { return }
     visited[s] = struct{}{}
     // Expand transitions based on provided expansion map
-    expanded := make(map[Range]*LNFAState, len(s.Transitions))
+    expanded := make(map[parser.Range]*LNFAState, len(s.Transitions))
     for value, state := range s.Transitions {
         if ranges := expansion[value]; ranges != nil {
             for _, r := range ranges { expanded[r] = state }
@@ -378,16 +379,6 @@ func (s *LNFAState) expand(expansion map[Range][]Range, visited map[*LNFAState]s
     // Epsilon transitions are not expanded, but may reach states with transitions that need expansion
     for _, state := range s.Epsilon { state.expand(expansion, visited) }
     s.Transitions = expanded
-}
-
-func (r Range) String() string {
-    if r.Min == r.Max { return formatChar(r.Min) }
-    return fmt.Sprintf("%s-%s", formatChar(r.Min), formatChar(r.Max))
-}
-
-func formatChar(char rune) string {
-    str := fmt.Sprintf("%q", string(char))
-    return str[1:len(str) - 1]
 }
 
 // FOR DEBUG PURPOSES:

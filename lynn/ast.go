@@ -3,6 +3,7 @@ package lynn
 import (
 	"cmp"
 	"fmt"
+	"lynn/lynn/parser"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,7 +24,7 @@ type GrammarNode struct {
 type RuleNode struct {
     Identifier *IdentifierNode
     Expression AST
-    Start, End Location
+    Start, End parser.Location
 }
 
 // Associativity type enum. Either NO_ASSOC, LEFT_ASSOC, or RIGHT_ASSOC.
@@ -33,7 +34,7 @@ const (NO_ASSOC AssociativityType = iota; LEFT_ASSOC; RIGHT_ASSOC)
 type PrecedenceNode struct {
     Identifier    *IdentifierNode
     Associativity AssociativityType
-    Start, End    Location
+    Start, End    parser.Location
 }
 
 // Node representing a token rule. Specifies the token's identifier and regular expression.
@@ -41,7 +42,7 @@ type TokenNode struct {
     Identifier *IdentifierNode
     Expression AST
     Skip       bool
-    Start, End Location
+    Start, End parser.Location
 }
 
 // Node representing a rule fragment. Specifies the fragment's identifier and regular expression.
@@ -49,59 +50,59 @@ type TokenNode struct {
 type FragmentNode struct {
     Identifier *IdentifierNode
     Expression AST
-    Start, End Location
+    Start, End parser.Location
 }
 
 // Node representing an option quantifier. Allows zero or one occurrence of the given regular expression.
-type OptionNode struct { Expression AST; Start, End Location }
+type OptionNode struct { Expression AST; Start, End parser.Location }
 // Node representing an repeat quantifier. Allows zero or more occurrences of the given regular expression.
-type RepeatNode struct { Expression AST; Start, End Location }
+type RepeatNode struct { Expression AST; Start, End parser.Location }
 // Node representing an repeat one or more quantifier. Allows one or more occurrences of the given regular expression.
-type RepeatOneNode struct { Expression AST; Start, End Location }
+type RepeatOneNode struct { Expression AST; Start, End parser.Location }
 
 // Node representing a rule case label. Specifies the callback identifier and associativity for the disambiguation process.
 type LabelNode struct {
     Expression AST
     Identifier *IdentifierNode
     Precedence *IdentifierNode
-    Start, End Location
+    Start, End parser.Location
 }
 // Node representing an alias. Specifies the alias identifier and the corresponding expression.
 type AliasNode struct {
     Identifier *IdentifierNode
     Expression AST
-    Start, End Location
+    Start, End parser.Location
 }
 
 // Node representing a concatenation operation. Requires that one expression immediately follow the preceding expression.
 type ConcatNode struct {
     A, B       AST
-    Start, End Location
+    Start, End parser.Location
 }
 // Node representing a union operation. Allows either one expression or the other to occur.
 type UnionNode struct {
     A, B       AST
-    Start, End Location
+    Start, End parser.Location
 }
 
 // Node representing an identifier literal.
-type IdentifierNode struct { Name string; Start, End Location }
+type IdentifierNode struct { Name string; Start, End parser.Location }
 // Node representing a string literal.
-type StringNode struct { Chars []rune; Start, End Location }
+type StringNode struct { Chars []rune; Start, End parser.Location }
 // Node representing a class literal.
-type ClassNode struct { Ranges []Range; Start, End Location }
+type ClassNode struct { Ranges []parser.Range; Start, End parser.Location }
 // Node representing an error literal.
-type ErrorNode struct { Start, End Location }
+type ErrorNode struct { Start, End parser.Location }
 
 // Parse tree visitor struct. Converts parse tree to abstract syntax tree (AST).
 type ParseTreeVisitor struct { }
 // Returns new parse tree visitor struct.
 func NewParseTreeVisitor() ParseTreeVisitor { return ParseTreeVisitor { } }
 
-func (v ParseTreeVisitor) VisitGrammar(node *ParseTreeNode) AST {
+func (v ParseTreeVisitor) VisitGrammar(node *parser.ParseTreeNode) AST {
     rules, precedence, tokens, fragments := make([]*RuleNode, 0), make([]*PrecedenceNode, 0), make([]*TokenNode, 0), make([]*FragmentNode, 0)
-    for _, node := range node.Stmt().(*ParseTreeNode).Children {
-        switch rule := VisitNode(v, node.(*ParseTreeNode)).(type) {
+    for _, node := range node.Stmt().(*parser.ParseTreeNode).Children {
+        switch rule := parser.VisitNode(v, node.(*parser.ParseTreeNode)).(type) {
         case *RuleNode: rules = append(rules, rule)
         case *PrecedenceNode: precedence = append(precedence, rule)
         case *TokenNode: tokens = append(tokens, rule)
@@ -115,97 +116,97 @@ func (v ParseTreeVisitor) VisitGrammar(node *ParseTreeNode) AST {
     return &GrammarNode { rules, precedence, tokens, fragments }
 }
 
-func (v ParseTreeVisitor) VisitStmt(node *ParseTreeNode) AST { panic("Invalid statement") }
-func (v ParseTreeVisitor) VisitRuleStmt(node *ParseTreeNode) AST {
-    id := node.IDENTIFIER().(Token)
+func (v ParseTreeVisitor) VisitStmt(node *parser.ParseTreeNode) AST { panic("Invalid statement") }
+func (v ParseTreeVisitor) VisitRuleStmt(node *parser.ParseTreeNode) AST {
+    id := node.IDENTIFIER().(parser.Token)
     identifier := &IdentifierNode { id.Value, id.Start, id.End }
-    return &RuleNode { identifier, VisitNode(v, node.Expr()), node.Start, node.End }
+    return &RuleNode { identifier, parser.VisitNode(v, node.Expr()), node.Start, node.End }
 }
 
-func (v ParseTreeVisitor) VisitPrecedenceStmt(node *ParseTreeNode) AST {
-    id := node.IDENTIFIER().(Token)
+func (v ParseTreeVisitor) VisitPrecedenceStmt(node *parser.ParseTreeNode) AST {
+    id := node.IDENTIFIER().(parser.Token)
     identifier := &IdentifierNode { id.Value, id.Start, id.End }
     var assoc AssociativityType
-    if value, ok := node.V().(*ParseTreeNode); ok {
-        switch value.A().(Token).Type {
-        case LEFT:  assoc = LEFT_ASSOC
-        case RIGHT: assoc = RIGHT_ASSOC
+    if value, ok := node.V().(*parser.ParseTreeNode); ok {
+        switch value.A().(parser.Token).Type {
+        case parser.LEFT:  assoc = LEFT_ASSOC
+        case parser.RIGHT: assoc = RIGHT_ASSOC
         default: panic("Invalid associativity type")
         }
     } else { assoc = NO_ASSOC }
     return &PrecedenceNode { identifier, assoc, node.Start, node.End }
 }
 
-func (v ParseTreeVisitor) VisitTokenStmt(node *ParseTreeNode) AST {
-    id := node.IDENTIFIER().(Token)
+func (v ParseTreeVisitor) VisitTokenStmt(node *parser.ParseTreeNode) AST {
+    id := node.IDENTIFIER().(parser.Token)
     identifier := &IdentifierNode { id.Value, id.Start, id.End }
     var expr AST; var skip bool
-    if value, ok := node.V().(*ParseTreeNode); ok {
-        expr = VisitNode(v, value.Expr())
+    if value, ok := node.V().(*parser.ParseTreeNode); ok {
+        expr = parser.VisitNode(v, value.Expr())
         skip = value.S() != nil
     }
     return &TokenNode { identifier, expr, skip, node.Start, node.End }
 }
 
-func (v ParseTreeVisitor) VisitFragmentStmt(node *ParseTreeNode) AST {
-    id := node.IDENTIFIER().(Token)
+func (v ParseTreeVisitor) VisitFragmentStmt(node *parser.ParseTreeNode) AST {
+    id := node.IDENTIFIER().(parser.Token)
     identifier := &IdentifierNode { id.Value, id.Start, id.End }
-    return &FragmentNode { identifier, VisitNode(v, node.Expr()), node.Start, node.End }
+    return &FragmentNode { identifier, parser.VisitNode(v, node.Expr()), node.Start, node.End }
 }
 
-func (v ParseTreeVisitor) VisitUnionExpr(node *ParseTreeNode) AST {
-    left, right := VisitNode(v, node.L()), VisitNode(v, node.R())
+func (v ParseTreeVisitor) VisitUnionExpr(node *parser.ParseTreeNode) AST {
+    left, right := parser.VisitNode(v, node.L()), parser.VisitNode(v, node.R())
     return &UnionNode { left, right, node.Start, node.End }
 }
 
-func (v ParseTreeVisitor) VisitLabelExpr(node *ParseTreeNode) AST {
-    id := node.IDENTIFIER().(Token)
+func (v ParseTreeVisitor) VisitLabelExpr(node *parser.ParseTreeNode) AST {
+    id := node.IDENTIFIER().(parser.Token)
     identifier := &IdentifierNode { id.Value, id.Start, id.End }
     var precedence *IdentifierNode
-    if t, ok := node.P().(*ParseTreeNode); ok {
-        n := t.IDENTIFIER().(Token)
+    if t, ok := node.P().(*parser.ParseTreeNode); ok {
+        n := t.IDENTIFIER().(parser.Token)
         precedence = &IdentifierNode { n.Value, n.Start, n.End }
     }
-    return &LabelNode { VisitNode(v, node.Expr()), identifier, precedence, node.Start, node.End }
+    return &LabelNode { parser.VisitNode(v, node.Expr()), identifier, precedence, node.Start, node.End }
 }
 
-func (v ParseTreeVisitor) VisitConcatExpr(node *ParseTreeNode) AST {
-    left, right := VisitNode(v, node.L()), VisitNode(v, node.R())
+func (v ParseTreeVisitor) VisitConcatExpr(node *parser.ParseTreeNode) AST {
+    left, right := parser.VisitNode(v, node.L()), parser.VisitNode(v, node.R())
     return &ConcatNode { left, right, node.Start, node.End }
 }
 
-func (v ParseTreeVisitor) VisitAliasExpr(node *ParseTreeNode) AST {
-    id := node.IDENTIFIER().(Token)
+func (v ParseTreeVisitor) VisitAliasExpr(node *parser.ParseTreeNode) AST {
+    id := node.IDENTIFIER().(parser.Token)
     identifier := &IdentifierNode { id.Value, id.Start, id.End }
-    return &AliasNode { identifier, VisitNode(v, node.Expr()), node.Start, node.End }
+    return &AliasNode { identifier, parser.VisitNode(v, node.Expr()), node.Start, node.End }
 }
 
-func (v ParseTreeVisitor) VisitQuantifierExpr(node *ParseTreeNode) AST {
-    switch node.Op().(Token).Type {
-    case QUESTION: return &OptionNode    { VisitNode(v, node.Expr()), node.Start, node.End }
-    case STAR:     return &RepeatNode    { VisitNode(v, node.Expr()), node.Start, node.End }
-    case PLUS:     return &RepeatOneNode { VisitNode(v, node.Expr()), node.Start, node.End }
+func (v ParseTreeVisitor) VisitQuantifierExpr(node *parser.ParseTreeNode) AST {
+    switch node.Op().(parser.Token).Type {
+    case parser.QUESTION: return &OptionNode    { parser.VisitNode(v, node.Expr()), node.Start, node.End }
+    case parser.STAR:     return &RepeatNode    { parser.VisitNode(v, node.Expr()), node.Start, node.End }
+    case parser.PLUS:     return &RepeatOneNode { parser.VisitNode(v, node.Expr()), node.Start, node.End }
     default: panic("Invalid quantifier operation")
     }
 }
 
-func (v ParseTreeVisitor) VisitGroupExpr(node *ParseTreeNode) AST { return VisitNode(v, node.Expr()) }
-func (v ParseTreeVisitor) VisitIdentifierExpr(node *ParseTreeNode) AST {
-    return &IdentifierNode { node.IDENTIFIER().(Token).Value, node.Start, node.End }
+func (v ParseTreeVisitor) VisitGroupExpr(node *parser.ParseTreeNode) AST { return parser.VisitNode(v, node.Expr()) }
+func (v ParseTreeVisitor) VisitIdentifierExpr(node *parser.ParseTreeNode) AST {
+    return &IdentifierNode { node.IDENTIFIER().(parser.Token).Value, node.Start, node.End }
 }
 
-func (v ParseTreeVisitor) VisitStringExpr(node *ParseTreeNode) AST {
-    str := node.STRING().(Token)
+func (v ParseTreeVisitor) VisitStringExpr(node *parser.ParseTreeNode) AST {
+    str := node.STRING().(parser.Token)
     value := str.Value[1:len(str.Value) - 1] // Remove quotation marks
     return &StringNode { reduceString([]rune(value)), node.Start, node.End }
 }
 
-func (v ParseTreeVisitor) VisitClassExpr(node *ParseTreeNode) AST {
-    class := node.CLASS().(Token)
+func (v ParseTreeVisitor) VisitClassExpr(node *parser.ParseTreeNode) AST {
+    class := node.CLASS().(parser.Token)
     value := class.Value[1:len(class.Value) - 1] // Remove brackets
     // If caret occurs, flag class as negated and remove caret
     negated, location := len(value) > 0 && value[0] == '^', node.Start
-    var expanded []Range
+    var expanded []parser.Range
     if !negated {
         expanded = expandClass(reduceString([]rune(value)), location)
     } else {
@@ -214,8 +215,8 @@ func (v ParseTreeVisitor) VisitClassExpr(node *ParseTreeNode) AST {
     return &ClassNode { expanded, location, node.End }
 }
 
-func (v ParseTreeVisitor) VisitErrorExpr(node *ParseTreeNode) AST { return &ErrorNode { node.Start, node.End } }
-func (v ParseTreeVisitor) VisitAnyExpr(node *ParseTreeNode) AST {
+func (v ParseTreeVisitor) VisitErrorExpr(node *parser.ParseTreeNode) AST { return &ErrorNode { node.Start, node.End } }
+func (v ParseTreeVisitor) VisitAnyExpr(node *parser.ParseTreeNode) AST {
     location := node.Start
     return &ClassNode { negateRanges(expandClass([]rune { '\n', '\r' }, location)), location, node.End }
 }
@@ -254,32 +255,32 @@ func reduceString(chars []rune) []rune {
     return result
 }
 
-func expandClass(chars []rune, location Location) []Range {
+func expandClass(chars []rune, location parser.Location) []parser.Range {
     // Convert characters and hyphen notation to range structs
-    expanded := make([]Range, 0, len(chars))
+    expanded := make([]parser.Range, 0, len(chars))
     for i := 0; i < len(chars); i++ {
         char := chars[i]
         if char == '-' && i > 0 && i < len(chars) - 1 { // Hyphen for range cannot be first or last character in class
             expanded = expanded[:len(expanded) - 1]
             if chars[i - 1] <= chars[i + 1] {
-                expanded = append(expanded, Range { chars[i - 1], chars[i + 1] })
+                expanded = append(expanded, parser.Range { Min: chars[i - 1], Max: chars[i + 1] })
             } else {
                 // Raise error and ignore range if endpoint order is reversed
                 Error(fmt.Sprintf("Invalid range from \"%s\" to \"%s\" - %d:%d",
-                    formatChar(chars[i - 1]), formatChar(chars[i + 1]), location.Line, location.Col))
+                    parser.FormatChar(chars[i - 1]), parser.FormatChar(chars[i + 1]), location.Line, location.Col))
             }
             i++
-        } else { expanded = append(expanded, Range { char, char }) }
+        } else { expanded = append(expanded, parser.Range { Min: char, Max: char }) }
     }
     if len(expanded) <= 1 { return expanded }
     return mergeRanges(expanded)
 }
 
-func mergeRanges(ranges []Range) []Range {
+func mergeRanges(ranges []parser.Range) []parser.Range {
     // Sort ranges based on minimum
     sort.Slice(ranges, func (i, j int) bool { return ranges[i].Min < ranges[j].Min })
     // Scan ranges and merge if overlap is found
-    merged := make([]Range, 1, len(ranges))
+    merged := make([]parser.Range, 1, len(ranges))
     merged[0] = ranges[0]
     for _, r := range ranges[1:] {
         last := &merged[len(merged) - 1]
@@ -292,15 +293,15 @@ func mergeRanges(ranges []Range) []Range {
     return merged
 }
 
-func negateRanges(ranges []Range) []Range {
+func negateRanges(ranges []parser.Range) []parser.Range {
     // Assumes ranges are already sorted and merged
-    negated := make([]Range, 0, len(ranges) + 1)
+    negated := make([]parser.Range, 0, len(ranges) + 1)
     var start rune = 1
     for _, r := range ranges {
-        if r.Min > start { negated = append(negated, Range { start, r.Min - 1 }) }
+        if r.Min > start { negated = append(negated, parser.Range { Min: start, Max: r.Min - 1 }) }
         start = r.Max + 1
     }
-    if start <= unicode.MaxRune { negated = append(negated, Range { start, unicode.MaxRune }) }
+    if start <= unicode.MaxRune { negated = append(negated, parser.Range { Min: start, Max: unicode.MaxRune }) }
     return negated
 }
 

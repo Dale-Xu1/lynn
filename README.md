@@ -18,7 +18,7 @@ Arguments:
   -l string
     	Output program language ("go" or "ts") (default "go")
   -o string
-    	Output Go package name (defaults to name of input file, not used in TypeScript compilation)
+    	Output Go package name (default "parser")
 ```
 
 ## Features

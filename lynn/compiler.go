@@ -2,6 +2,7 @@ package lynn
 
 import (
 	"fmt"
+	"lynn/lynn/parser"
 	"os"
 	"strconv"
 	"strings"
@@ -18,7 +19,7 @@ func Error(message string) {
 }
 
 // Compiles relevant lexer data to lexer program in Go.
-func CompileLexerGo(name string, dfa LDFA, ranges []Range, grammar *GrammarNode) {
+func CompileLexerGo(name string, dfa LDFA, ranges []parser.Range, grammar *GrammarNode) {
     const LEXER_TEMPLATE string = "lynn/spec/go/lexer.template"
     // Read template information
     data, err := os.ReadFile(LEXER_TEMPLATE)
@@ -38,7 +39,7 @@ func CompileLexerGo(name string, dfa LDFA, ranges []Range, grammar *GrammarNode)
     }
     tokens[0] += " TokenType = iota"
     // Format range information
-    rangeIndices := make(map[Range]int, len(ranges))
+    rangeIndices := make(map[parser.Range]int, len(ranges))
     rangeStrings := make([]string, len(ranges))
     for i, r := range ranges { rangeIndices[r] = i }
     for i, r := range ranges {
@@ -188,7 +189,7 @@ func CompileParserGo(name string, table LRParseTable, maps map[*Production]map[s
 // ------------------------------------------------------------------------------------------------------------------------------
 
 // Compiles relevant lexer data to lexer program in TypeScript.
-func CompileLexerTS(dfa LDFA, ranges []Range, grammar *GrammarNode) {
+func CompileLexerTS(dfa LDFA, ranges []parser.Range, grammar *GrammarNode) {
     const LEXER_TEMPLATE string = "lynn/spec/ts/lexer.template"
     // Read template information
     data, err := os.ReadFile(LEXER_TEMPLATE)
@@ -205,7 +206,7 @@ func CompileLexerTS(dfa LDFA, ranges []Range, grammar *GrammarNode) {
         if token.Skip { skip = append(skip, strconv.Itoa(i)) }
     }
     // Format range information
-    rangeIndices := make(map[Range]int, len(ranges))
+    rangeIndices := make(map[parser.Range]int, len(ranges))
     rangeStrings := make([]string, len(ranges))
     for i, r := range ranges { rangeIndices[r] = i }
     for i, r := range ranges {
