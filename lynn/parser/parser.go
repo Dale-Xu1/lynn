@@ -190,7 +190,6 @@ func (p *Parser) Parse() *ParseTreeNode {
             p.handler(token)
             for {
                 // Pop states off the stack until a valid shift action on the error terminal is found
-                if len(stack) == 0 { return nil }
                 if action, ok := parseTable[state].actions[-1]; ok && action.actionType == SHIFT {
                     // Shift token that caused error onto stack
                     // Then enter panic mode and read tokens until a valid action can be made
@@ -201,6 +200,7 @@ func (p *Parser) Parse() *ParseTreeNode {
                         if token.Type == EOF { return nil }
                     }
                 }
+                if len(stack) <= 1 { return nil }
                 i := len(stack) - 1; stack = stack[:i]
                 state = stack[i - 1].state
             }

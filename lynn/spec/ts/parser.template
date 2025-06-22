@@ -102,7 +102,6 @@ export default class Parser {
                 this.handler(token)
                 while (true) {
                     // Pop states off the stack until a valid shift action on the error terminal is found
-                    if (stack.length === 0) return null
                     let action = Parser.parseTable[state].actions.get(-1)
                     if (action !== undefined && action.type === ActionType.SHIFT) {
                         // Shift token that caused error onto stack
@@ -114,6 +113,7 @@ export default class Parser {
                             if (token.type === TokenType.EOF) return null
                         }
                     }
+                    if (stack.length <= 1) return null
                     stack.pop()
                     state = stack[stack.length - 1].state
                 }

@@ -1,6 +1,7 @@
 package lynn
 
 import (
+	"embed"
 	"fmt"
 	"lynn/lynn/parser"
 	"os"
@@ -18,11 +19,14 @@ func Error(message string) {
     occurred = true
 }
 
+//go:embed spec/**/*.template
+var f embed.FS
+
 // Compiles relevant lexer data to lexer program in Go.
 func CompileLexerGo(name string, dfa LDFA, ranges []parser.Range, grammar *GrammarNode) {
-    const LEXER_TEMPLATE string = "lynn/spec/go/lexer.template"
+    const LEXER_TEMPLATE string = "spec/go/lexer.template"
     // Read template information
-    data, err := os.ReadFile(LEXER_TEMPLATE)
+    data, err := f.ReadFile(LEXER_TEMPLATE)
     if err != nil { panic(err) }
     template := string(data)
     // Format token type information
@@ -90,9 +94,9 @@ func CompileLexerGo(name string, dfa LDFA, ranges []parser.Range, grammar *Gramm
 
 // Compiles relevant parser data to parser program in Go.
 func CompileParserGo(name string, table LRParseTable, maps map[*Production]map[string]int, grammar *GrammarNode) {
-    const PARSER_TEMPLATE string = "lynn/spec/go/parser.template"
+    const PARSER_TEMPLATE string = "spec/go/parser.template"
     // Read template information
-    data, err := os.ReadFile(PARSER_TEMPLATE)
+    data, err := f.ReadFile(PARSER_TEMPLATE)
     if err != nil { panic(err) }
     template := string(data)
     // Get token indices
@@ -190,9 +194,9 @@ func CompileParserGo(name string, table LRParseTable, maps map[*Production]map[s
 
 // Compiles relevant lexer data to lexer program in TypeScript.
 func CompileLexerTS(dfa LDFA, ranges []parser.Range, grammar *GrammarNode) {
-    const LEXER_TEMPLATE string = "lynn/spec/ts/lexer.template"
+    const LEXER_TEMPLATE string = "spec/ts/lexer.template"
     // Read template information
-    data, err := os.ReadFile(LEXER_TEMPLATE)
+    data, err := f.ReadFile(LEXER_TEMPLATE)
     if err != nil { panic(err) }
     template := string(data)
     // Format token type information
@@ -256,9 +260,9 @@ func CompileLexerTS(dfa LDFA, ranges []parser.Range, grammar *GrammarNode) {
 
 // Compiles relevant parser data to parser program in TypeScript.
 func CompileParserTS(table LRParseTable, maps map[*Production]map[string]int, grammar *GrammarNode) {
-    const PARSER_TEMPLATE string = "lynn/spec/ts/parser.template"
+    const PARSER_TEMPLATE string = "spec/ts/parser.template"
     // Read template information
-    data, err := os.ReadFile(PARSER_TEMPLATE)
+    data, err := f.ReadFile(PARSER_TEMPLATE)
     if err != nil { panic(err) }
     template := string(data)
     // Get token indices
