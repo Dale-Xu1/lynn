@@ -42,46 +42,49 @@ func main() {
         err = true
     }).Parse()
     if err { Fail(); return }
-    fmt.Println("1/8 - Generated parse tree")
+    fmt.Println("[1/8] Generated parse tree")
 
     ast := lynn.NewParseTreeVisitor().VisitGrammar(tree).(*lynn.GrammarNode)
     if lynn.Panic() { Fail(); return }
-    fmt.Println("2/8 - Created abstract syntax tree")
+    fmt.Println("[2/8] Created abstract syntax tree")
     if log { fmt.Println(ast) }
 
     // Generate lexer data and compile to program
+    fmt.Println()
     fmt.Println("== Generating lexer data... ==")
     generator := lynn.NewLexerGenerator()
     nfa, ranges := generator.GenerateNFA(ast)
     if lynn.Panic() { Fail(); return }
-    fmt.Println("3/8 - Generated non-deterministic finite automata")
+    fmt.Println("[3/8] Generated non-deterministic finite automata")
 
     dfa := generator.NFAtoDFA(nfa, ranges)
-    fmt.Println("4/8 - Generated deterministic finite automata")
+    fmt.Println("[4/8] Generated deterministic finite automata")
 
     // Generate parser data and compile to program
+    fmt.Println()
     fmt.Println("== Generating parser data... ==")
     grammar, maps := lynn.NewGrammarGenerator().GenerateCFG(ast)
     if lynn.Panic() { Fail(); return }
-    fmt.Println("5/8 - Generated context-free grammar")
+    fmt.Println("[5/8] Generated context-free grammar")
     if log { grammar.PrintGrammar() }
 
     table := lynn.NewLALRParserGenerator().Generate(grammar)
     if lynn.Panic() { Fail(); return }
-    fmt.Println("6/8 - Generated LALR(1) parse table")
+    fmt.Println("[6/8] Generated LALR(1) parse table")
 
+    fmt.Println()
     fmt.Println("== Compiling generated programs... ==")
     switch lang {
     case "go":
         lynn.CompileLexerGo(name, dfa, ranges, ast)
-        fmt.Println("7/8 - Compiled lexer program")
+        fmt.Println("[7/8] Compiled lexer program")
         lynn.CompileParserGo(name, table, maps, ast)
-        fmt.Println("8/8 - Compiled parser program")
+        fmt.Println("[8/8] Compiled parser program")
     case "ts":
         lynn.CompileLexerTS(dfa, ranges, ast)
-        fmt.Println("7/8 - Compiled lexer program")
+        fmt.Println("[7/8] Compiled lexer program")
         lynn.CompileParserTS(table, maps, ast)
-        fmt.Println("8/8 - Compiled parser program")
+        fmt.Println("[8/8] Compiled parser program")
     default: Fail()
     }
 }
